@@ -121,12 +121,51 @@
 
 /*******************************************************************************
             private methods
-*******************************************************************************/
-/*------------------------------------------------------------------------------
+********/---------------------------------
     Name:           configurePMC
-    parameters:     -
-    descritpion:    initializes the Power Management controller
-------------------------------------------------------------------------------*/
+    par*****
+            static variables
+---------------------------------
+    Name:           configurePMC
+    par*****/
+uint8_t             MotorCount = 0;
+static BldcControl* motors[MAX_MOTORS];
+const int8_t        commutationTable[8][3] = 
+{   { 0, 0, 0}, /* illegal hall state 000 */
+    {-1, 0, 1}, /* 001 */
+    { 1,-1, 0}, /* 010 */
+    { 0,-1, 1}, /* 011 */
+    { 0, 1,-1}, /* 100 */
+    {-1, 1, 0}, /* 101 */
+    { 1, 0,-1}, /* 110 */
+    { 0, 0, 0}, /* illegal hall state 111 */
+};-----------------------------------------------------
+    Name:           Config
+    parameters:  interrupt handler
+---------------------------------
+    Name:           configurePMC
+    par*****/
+#if defined (_useTimer1)
+void HANDLER_FOR_TIMER1(void) {
+    /* clear interrupt */
+    TC_FOR_TIMER1->TC_CHANNEL[CHANNEL_FOR_TIMER1].TC_SR;
+    motors[0]->CommutationControl();
+}
+#endif
+#if defined (_useTimer2)
+void HANDLER_FOR_TIMER2(void) {
+    /* clear interrupt */
+    TC_FOR_TIMER2->TC_CHANNEL[CHANNEL_FOR_TIMER2].TC_SR;
+    motors[1]->CommutationControl();
+}
+#endif-----------------------------------------------------
+    Name:           Config
+    parameters:   rivate methods
+---------------------------------
+    Name:           configurePMC
+    par         irq         - isr request
+    descritpion:    initializes motor controler
+-------------------------------------------------------------------------------*/
 void BldcControl::configurePMC(void)
 {
     pmc_set_writeprotect(false);
@@ -276,7 +315,7 @@ void BldcControl::configurePWMC(void)
     /* disable all 3 channels */
     PWMC_DisableChannel(PWM, PWM_CHANNEL_PHU);
     PWMC_DisableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHW);
+    PWMC_DisableChauint16_t deadTimeableChannel(PWM, PWM_CHANNEL_PHW);
 
     PWMC_ConfigureClocks(clka, clkb, mck);
 
@@ -531,63 +570,51 @@ void BldcControl::Config(Tc         *tc,
                          uint32_t   channel,
                          IRQn_Type  irq)
 {
-    /* configure Power Management */
-    configurePMC();
-
-    /* setup Pin configuration */
-    configurePIOC();
-    
-    /* setup ADC configuration */
-    configureADC();
-
-    /* setup PWM configuration */
-    configurePWMC();
-
-    /* setup timer for interrupt generation */
+    /*if (MotorCount < MAX_MOTORS) 
+    {
+        motors[MotorCount] = this;
+        this->motorIndex = MotorCount++; /* assign index to this instance */        
+    } 3
+    descritpion:    sets PWM registers for unipolar complementary switching
+------------------------------Config
+    parameters:     -ration */
     configureTimerInterrupt(tc, channel, irq, CTRL_FRQ); 
     
     /* initialize commutation table */
-    commutationTable = {{ 0, 0, 0}, /* illegal hall state 000 */
-                        {-1, 0, 1}, /* 001 */
-                        { 1,-1, 0}, /* 010 */
-                        { 0,-1, 1}, /* 011 */
-                        { 0, 1,-1}, /* 100 */
+    commutationTable = {{ 0, 0, 0}, /* illegalvoid)
+{
+    /* configure Power Management */
+    configurePMC();
+
+    if (this->motorIndex < MAX_MOTORS) 
+    {
+        /* setup timer for interrupt generation */
+        #if defined (_useTimer1)
+        if (this->motorIndex == 0)
+            configureTimerInterrupt(TC_FOR_TIMER1, 
+                                    CHANNEL_FOR_TIMER1, 
+                                    IRQn_FOR_TIMER1, 
+                                    CTRL_FRQ);
+        #endif    
+        #if defined (_useTimer2)
+        if (this->motorIndex == 1)
+            configureTimerInterrupt(TC_FOR_TIMER2, 
+                                    CHANNEL_FOR_TIMER2, 
+                                    IRQn_FOR_TIMER2, 
+                                    CTRL_FRQ);
+        #endif
+    }               { 0, 1,-1}, /* 100 */
                         {-1, 1, 0}, /* 101 */
                         { 1, 0,-1}, /* 110 */
                         { 0, 0, 0}, /* illegal hall state 111 */
-                        };
-
-    /* set motor properties */
+ motor properties */
     motorProperties.polePairs = 4;
     Kprp = 1;
     Kint = 0;
     
-
-
-}
-
-/*------------------------------------------------------------------------------
-    Name:           Controller
-    parameters:     -
-    descritpion:    inner loop control, complentary unipolar PWM
-------------------------------------------------------------------------------*/
-void BldcControl::CommutationControl(void)
-{
-    uint8_t  hallState;
-    uint16_t tmp_per = pwmPeriod/2;
-    int16_t  tmp_dc;    
-    int16_t  deltaPhi;
-    int16_t  Iu, Iv, Iw;
-    int16_t  Ifilt;
-
-SET_DEBUG_PIN;
-    interruptCounter++;
-
-    /* read hall sensors */
-    hallState = (uint8_t)((HALL1_STATE | (HALL2_STATE<<1) | (HALL3_STATE<<2))&
-                0b111U);
-
-    /* calculate motor current */
+    returnr 3
+    descritpion:    sets PWM registers for unipolar complementary switching
+------------------------------otor current */
     Iu = (((int16_t)(ADC_CH_CUR_PHU_RESULT)) - ADC_CUR_OFFSET);
     Iv = (((int16_t)(ADC_CH_CUR_PHV_RESULT)) - ADC_CUR_OFFSET);
     Iw = -Iu - Iv;
@@ -641,7 +668,7 @@ SET_DEBUG_PIN;
     /* enable update */
     PWM->PWM_SCUC = PWM_SCUC_UPDULOCK;
 
-    /* debug output */
+    /* de//bug output */
     analogWriteResolution(12);
     analogWrite(66,currentFbk); /* DAC0 */
     analogWrite(67,Ifilt); /* DAC1 */
@@ -698,3 +725,4 @@ float BldcControl::getActualSpeed(void)
 
 }
 
+interruptCounter
