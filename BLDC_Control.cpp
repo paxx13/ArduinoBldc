@@ -146,7 +146,7 @@ const int8_t        commutationTable[8][3] =
     Name:           configurePMC
     par*****/
 #if defined (_useTimer1)
-void HANDLER_FOR_TIMER1(void) {
+voidHANDLER_FOR_TIMER1(void) {
     /* clear interrupt */
     TC_FOR_TIMER1->TC_CHANNEL[CHANNEL_FOR_TIMER1].TC_SR;
     motors[0]->CommutationControl();
@@ -590,7 +590,7 @@ void BldcControl::Config(Tc         *tc,
     {
         /* setup timer for interrupt generation */
         #if defined (_useTimer1)
-        if (this->motorIndex == 0)
+        if (this->motorIndex ==0)
             configureTimerInterrupt(TC_FOR_TIMER1, 
                                     CHANNEL_FOR_TIMER1, 
                                     IRQn_FOR_TIMER1, 

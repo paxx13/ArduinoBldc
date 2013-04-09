@@ -9,7 +9,10 @@
 
 #include "Arduino.h"
 
-struct mach#define _useTimer1
+struct mach/*******************************************************************************
+  B         defines
+*******************************************************************************/
+#define useTimer1
 
 
   TC0, chan 0 => TC0_Handler
@@ -23,8 +26,8 @@ struct mach#define _useTimer1
   TC2, chan 2 => TC8_Handler
  */
 
-#if defined useTimer1)
-#define TC_FOR_TIMER1       TC1
+#if def*/
+#if defined (fine TC_FOR_TIMER1       TC1
 #define CHANNEL_FOR_TIMER1  0
 #define ID_TC_FOR_TIMER1    ID_TC3
 #define IRQn_FOR_TIMER1     TC3_IRQn
@@ -42,7 +45,9 @@ typedef enum { _timer1, _timer2, _Nbr_16timers } timer16_Sequence_t ;
 
 #define MAX_MOTORS  1machineProperties
 {
-    uint8_t   polePairs;
+    uint8_t   p/*******************************************************************************
+  B          structures and classes
+*******************************************************************************/ polePairs;
     uint16_t  ratedSpeed;
 };
 
