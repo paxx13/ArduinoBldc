@@ -11,7 +11,7 @@
 
 struct mach#define _useTimer1
 
-/*
+
   TC0, chan 0 => TC0_Handler
   TC0, chan 1 => TC1_Handler
   TC0, chan 2 => TC2_Handler
@@ -23,7 +23,7 @@ struct mach#define _useTimer1
   TC2, chan 2 => TC8_Handler
  */
 
-#if defined (_useTimer1)
+#if defined useTimer1)
 #define TC_FOR_TIMER1       TC1
 #define CHANNEL_FOR_TIMER1  0
 #define ID_TC_FOR_TIMER1    ID_TC3
