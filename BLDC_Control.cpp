@@ -117,17 +117,9 @@
 #define PIN_ADC_CH4     6       /* AD3 -> ch4 on arduino due */
 #define PIN_ADC_CH5     4       /* AD2 -> ch5 on arduino due */
 
-
-
 /*******************************************************************************
-            private methods
-********/---------------------------------
-    Name:           configurePMC
-    par*****
             static variables
----------------------------------
-    Name:           configurePMC
-    par*****/
+*******************************************************************************/
 uint8_t             MotorCount = 0;
 static BldcControl* motors[MAX_MOTORS];
 const int8_t        commutationTable[8][3] = 
@@ -139,13 +131,12 @@ const int8_t        commutationTable[8][3] =
     {-1, 1, 0}, /* 101 */
     { 1, 0,-1}, /* 110 */
     { 0, 0, 0}, /* illegal hall state 111 */
-};-----------------------------------------------------
-    Name:           Config
-    parameters:  interrupt handler
----------------------------------
-    Name:           configurePMC
-    par*****/
-#if defined (_useTimer1)
+};
+
+/*******************************************************************************
+            interrupt handler
+*******************************************************************************/
+#if defined (useTimer1)
 void HANDLER_FOR_TIMER1(void) {
     /* clear interrupt */
     TC_FOR_TIMER1->TC_CHANNEL[CHANNEL_FOR_TIMER1].TC_SR;
@@ -158,14 +149,16 @@ void HANDLER_FOR_TIMER2(void) {
     TC_FOR_TIMER2->TC_CHANNEL[CHANNEL_FOR_TIMER2].TC_SR;
     motors[1]->CommutationControl();
 }
-#endif-----------------------------------------------------
-    Name:           Config
-    parameters:   rivate methods
----------------------------------
+#endif
+
+/*******************************************************************************
+            private methods
+*******************************************************************************/
+/*------------------------------------------------------------------------------
     Name:           configurePMC
-    par         irq         - isr request
-    descritpion:    initializes motor controler
--------------------------------------------------------------------------------*/
+    parameters:     -
+    descritpion:    initializes the Power Management controller
+------------------------------------------------------------------------------*/
 void BldcControl::configurePMC(void)
 {
     pmc_set_writeprotect(false);
@@ -307,6 +300,7 @@ void BldcControl::configurePWMC(void)
     uint32_t clkb     = 0;               /* clock B not used */
     uint32_t mck      = MCK_CLOCK_42MHZ;
     uint16_t duty     = 0;
+    uint16_t deadTime;
     
     pwmPeriod   = MCK_CLOCK_42MHZ / PWM_SW_FRQ;
     
@@ -315,7 +309,7 @@ void BldcControl::configurePWMC(void)
     /* disable all 3 channels */
     PWMC_DisableChannel(PWM, PWM_CHANNEL_PHU);
     PWMC_DisableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_DisableChauint16_t deadTimeableChannel(PWM, PWM_CHANNEL_PHW);
+    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHW);
 
     PWMC_ConfigureClocks(clka, clkb, mck);
 
@@ -556,32 +550,19 @@ uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
 ------------------------------------------------------------------------------*/
 BldcControl::BldcControl(void)
 {
-    
+    if (MotorCount < MAX_MOTORS) 
+    {
+        motors[MotorCount] = this;
+        this->motorIndex = MotorCount++; /* assign index to this instance */        
+    }
 }
 
 /*------------------------------------------------------------------------------
     Name:           Config
-    parameters:     tc          - timer counter
-                    channel     - timer channel
-                    irq         - isr request
+    parameters:     -
     descritpion:    initializes motor controler
 ------------------------------------------------------------------------------*/
-void BldcControl::Config(Tc         *tc, 
-                         uint32_t   channel,
-                         IRQn_Type  irq)
-{
-    /*if (MotorCount < MAX_MOTORS) 
-    {
-        motors[MotorCount] = this;
-        this->motorIndex = MotorCount++; /* assign index to this instance */        
-    } 3
-    descritpion:    sets PWM registers for unipolar complementary switching
-------------------------------Config
-    parameters:     -ration */
-    configureTimerInterrupt(tc, channel, irq, CTRL_FRQ); 
-    
-    /* initialize commutation table */
-    commutationTable = {{ 0, 0, 0}, /* illegalvoid)
+void BldcControl::Config(void)
 {
     /* configure Power Management */
     configurePMC();
@@ -589,7 +570,7 @@ void BldcControl::Config(Tc         *tc,
     if (this->motorIndex < MAX_MOTORS) 
     {
         /* setup timer for interrupt generation */
-        #if defined (_useTimer1)
+        #if defined (useTimer1)
         if (this->motorIndex == 0)
             configureTimerInterrupt(TC_FOR_TIMER1, 
                                     CHANNEL_FOR_TIMER1, 
@@ -603,18 +584,47 @@ void BldcControl::Config(Tc         *tc,
                                     IRQn_FOR_TIMER2, 
                                     CTRL_FRQ);
         #endif
-    }               { 0, 1,-1}, /* 100 */
-                        {-1, 1, 0}, /* 101 */
-                        { 1, 0,-1}, /* 110 */
-                        { 0, 0, 0}, /* illegal hall state 111 */
- motor properties */
+    }
+
+    /* setup Pin configuration */
+    configurePIOC();
+    
+    /* setup ADC configuration */
+    configureADC();
+
+    /* setup PWM configuration */
+    configurePWMC();
+
+    /* set motor properties */
     motorProperties.polePairs = 4;
     Kprp = 1;
     Kint = 0;
     
-    returnr 3
-    descritpion:    sets PWM registers for unipolar complementary switching
-------------------------------otor current */
+    return;
+}
+
+/*------------------------------------------------------------------------------
+    Name:           Controller
+    parameters:     -
+    descritpion:    inner loop control, complentary unipolar PWM
+------------------------------------------------------------------------------*/
+void BldcControl::CommutationControl(void)
+{
+    uint8_t  hallState;
+    uint16_t tmp_per = pwmPeriod/2;
+    int16_t  tmp_dc;    
+    int16_t  deltaPhi;
+    int16_t  Iu, Iv, Iw;
+    int16_t  Ifilt;
+
+SET_DEBUG_PIN;
+    interruptCounter++;
+
+    /* read hall sensors */
+    hallState = (uint8_t)((HALL1_STATE | (HALL2_STATE<<1) | (HALL3_STATE<<2))&
+                0b111U);
+
+    /* calculate motor current */
     Iu = (((int16_t)(ADC_CH_CUR_PHU_RESULT)) - ADC_CUR_OFFSET);
     Iv = (((int16_t)(ADC_CH_CUR_PHV_RESULT)) - ADC_CUR_OFFSET);
     Iw = -Iu - Iv;
@@ -650,7 +660,7 @@ void BldcControl::Config(Tc         *tc,
         actualSpeed = (float)(CTRL_FRQ / interruptCounter) * 
                       ((((float)(deltaPhi) / motorProperties.polePairs ))/360) *
                       (float)SEC_PER_MIN;
-        interruptCounter = 0;
+        //interruptCounter = 0;
     }
     else
     {
@@ -668,7 +678,7 @@ void BldcControl::Config(Tc         *tc,
     /* enable update */
     PWM->PWM_SCUC = PWM_SCUC_UPDULOCK;
 
-    /* de//bug output */
+    /* debug output */
     analogWriteResolution(12);
     analogWrite(66,currentFbk); /* DAC0 */
     analogWrite(67,Ifilt); /* DAC1 */
@@ -720,9 +730,8 @@ int16_t BldcControl::CurrentControl(int16_t iFbk)
 ------------------------------------------------------------------------------*/
 float BldcControl::getActualSpeed(void)
 {
-    return currentFbk;/*(((float)(ADC_CH_CUR_PHU_RESULT)  / ADC_MAX_VAL_12BIT * ADC_REF ) -
+    return interruptCounter;/*(((float)(ADC_CH_CUR_PHU_RESULT)  / ADC_MAX_VAL_12BIT * ADC_REF ) -
          ADC_CUR_OFFSET) * ADC_VOLT_IN_AMPS;*/
 
 }
 
-interruptCounter

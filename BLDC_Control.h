@@ -9,9 +9,11 @@
 
 #include "Arduino.h"
 
-struct mach#define _useTimer1
-
-
+/*******************************************************************************
+           defines
+*******************************************************************************/
+#define useTimer1
+/*
   TC0, chan 0 => TC0_Handler
   TC0, chan 1 => TC1_Handler
   TC0, chan 2 => TC2_Handler
@@ -21,9 +23,8 @@ struct mach#define _useTimer1
   TC2, chan 0 => TC6_Handler
   TC2, chan 1 => TC7_Handler
   TC2, chan 2 => TC8_Handler
- */
-
-#if defined useTimer1)
+*/
+#if defined (useTimer1)
 #define TC_FOR_TIMER1       TC1
 #define CHANNEL_FOR_TIMER1  0
 #define ID_TC_FOR_TIMER1    ID_TC3
@@ -40,7 +41,12 @@ struct mach#define _useTimer1
 
 typedef enum { _timer1, _timer2, _Nbr_16timers } timer16_Sequence_t ;
 
-#define MAX_MOTORS  1machineProperties
+#define MAX_MOTORS  1
+
+/*******************************************************************************
+            structures and classes
+*******************************************************************************/
+struct machineProperties
 {
     uint8_t   polePairs;
     uint16_t  ratedSpeed;
@@ -52,15 +58,15 @@ class BldcControl
     public:
         /* member methods */
         BldcControl(void);
-        void     Config(Tc         *tc, 
-      voidtationControl(void);
+        void     Config(void);
+        void     CommutationControl(void);
         float    getActualSpeed(void);
 
         /* member variables */
         uint32_t interruptCounter;
         float    speedRequest;
-        int32_t            debug;
-    /*----------------------------------------------------------*/    
+        int32_t  debug;
+    /*--------------------------------------------------------------------*/    
     private:  
         /* member methods */    
         void      configureTimerInterrupt(Tc         *tc, 
@@ -71,25 +77,25 @@ class BldcControl
         void      configureADC(void);
         void      configurePWMC(void);
         void      configurePMC(void);
-        int16_t  CurrentControl(int16_t iFbk);
-        uint8__t   pwmSwitchingCU(uint8_t hallState);
+        int16_t   CurrentControl(int16_t iFbk);
+        uint8_t   pwmSwitchingCU(uint8_t hallState);
         uint8_t   pwmSwitchingIU(uint8_t hallState);
-        int16_t     firU(int16_t NewSample);
-        in/* member variables */
-        uint8_t             motorIndex; int16_t             rotorPosition;
+        /* member variables */
+        uint8_t             motorIndex;
+        float               actualSpeed;
+        int16_t             rotorPosition;
         int16_t             phiElec;
         int16_t             phiElecOld;
-        uint16_t            pwmPeriod; 
-        int8_t              commutationTable[8][3];
-
+        uint16_t            pwmPeriod;
         machineProperties   motorProperties;
-        uint8_t             previousHallStat             currentRef;
+        uint8_t             previousHallState;
+        int16_t             currentFbk;
+        int16_t             currentRef;
         int16_t             Kprp;
         uint16_t            Kint;
         int16_t             iInt;
         int16_t             test;
         int32_t             IfbkFilt;
-        int16_t             Iu_old;
-        int16_t             Iv};
+};
 
 #endif /* BLDC_CONTROL_H */
