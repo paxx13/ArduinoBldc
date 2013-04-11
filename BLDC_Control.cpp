@@ -37,7 +37,7 @@
 
 
 /* PWM related definitions */
-#define PWM_SW_FRQ      30000           /* 500kHz switching frequency */
+#define PWM_SW_FRQ      30000            /* 30kHz switching frequency */
 #define PWM_PERIOD      (1 / PWM_SW_FRQ) /* PWM period */
 
 #define PWM_CHANNEL_PHU 0
@@ -89,7 +89,7 @@
 
 #define ADC_VOLT_IN_AMPS     12     /* transfer gain of current sensor */
                                     /* (2.5 Volts = 30 Amps) */
-#define ADC_CUR_OFFSET       3078   /* 0 amps = 2.5 Volts in current sensor */
+#define ADC_CUR_OFFSET       3102   /* 0 amps = 2.5 Volts in current sensor */
 
 #define ADC_CH_CUR_PHA     7     /* AD7 */
 #define ADC_CH_CUR_PHB     6     /* AD6 */
@@ -612,8 +612,7 @@ void BldcControl::CommutationControl(void)
 {
     uint8_t  hallState;
     uint16_t tmp_per = pwmPeriod/2;
-    int16_t  tmp_dc;    
-    int16_t  deltaPhi;
+    int16_t  tmp_dc;
     int16_t  Iu, Iv, Iw;
     int16_t  Ifilt;
 
@@ -635,8 +634,7 @@ SET_DEBUG_PIN;
     Ifilt = IfbkFilt >> FILTER_VALUE;
 
     /* run current control */
-    currentRef = speedRequest;
-    tmp_dc     = currentRef;//CurrentControl(Ifilt);
+    tmp_dc     = currentRef;//CurrentControl(Ifilt, currentRef);
     debug      = tmp_dc;
 
     /* change commutation if hall state changed */
@@ -657,10 +655,7 @@ SET_DEBUG_PIN;
         rotorPosition = rotorPosition%360;
         
         /* calculate speed */
-        actualSpeed = (float)(CTRL_FRQ / interruptCounter) * 
-                      ((((float)(deltaPhi) / motorProperties.polePairs ))/360) *
-                      (float)SEC_PER_MIN;
-        //interruptCounter = 0;
+        interruptCounter = 0;
     }
     else
     {
@@ -690,7 +685,7 @@ CLR_DEBUG_PIN;
     parameters:     -
     descritpion:    controls the DC bus current
 ------------------------------------------------------------------------------*/
-int16_t BldcControl::CurrentControl(int16_t iFbk)
+int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 {
     int16_t iErr;
     int16_t iOut;
@@ -698,30 +693,42 @@ int16_t BldcControl::CurrentControl(int16_t iFbk)
     int16_t iInt;
 
     /* calculate error */
-    iErr = currentRef - iFbk;
+    iErr = iRef - iFbk;
     
     /* proportional path */
-    iPrp = iErr * Kprp;
+    iPrp = iErr * this->Kprp;
     
     /* integral path */
-    //iInt += (int16_t)(Kint * CTRL_DELTM * ((float)(iInt - iErr)));
+    //iInt += (int16_t)(this->Kint * CTRL_DELTM * ((float)(iInt - iErr)));
     
     iOut = iPrp + iInt;
 
     /* limit output */
-    if (iOut > (pwmPeriod/2))
+    if (iOut > (this->pwmPeriod/2))
     {
-        iOut = (pwmPeriod/2);
+        iOut = (this->pwmPeriod/2);
     }
-    else if (iOut < (-pwmPeriod/2))
+    else if (iOut < (-this->pwmPeriod/2))
     {
-        iOut = (-pwmPeriod/2);
+        iOut = (-this->pwmPeriod/2);
     }
     
     
     return iOut;
 }
 
+/*------------------------------------------------------------------------------
+    Name:           setCurrentRef
+    parameters:     current - motor current reference in amps
+    descritpion:    sets the raw value of the current reference for inner loop
+                    control
+------------------------------------------------------------------------------*/
+void BldcControl::setCurrentRef(float current)
+{
+    this->currentRef = (int16_t)((current / ADC_VOLT_IN_AMPS) *
+                                 (ADC_MAX_VAL_12BIT / ADC_REF));
+    return;
+}
 
 /*------------------------------------------------------------------------------
     Name:           getActualSpeed
@@ -730,8 +737,12 @@ int16_t BldcControl::CurrentControl(int16_t iFbk)
 ------------------------------------------------------------------------------*/
 float BldcControl::getActualSpeed(void)
 {
-    return interruptCounter;/*(((float)(ADC_CH_CUR_PHU_RESULT)  / ADC_MAX_VAL_12BIT * ADC_REF ) -
-         ADC_CUR_OFFSET) * ADC_VOLT_IN_AMPS;*/
+    float actualSpeed;
 
+    actualSpeed = (float)(CTRL_FRQ / this->interruptCounter) * 
+                      ((((float)(deltaPhi) / this->motorProperties.polePairs ))/360) *
+                      (float)SEC_PER_MIN;
+
+    return actualSpeed;
 }
 

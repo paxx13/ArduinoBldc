@@ -13,15 +13,15 @@ void setup() {
 
 void loop() {
   /* print duty cycle speed */
-  Serial.print("\nRequested DC:");
-  Serial.println(myMotor.speedRequest,4);  
-  Serial.print("Actual DC:");
+  Serial.print("\nRequested Current in Duty Cycle ticks:");
+  Serial.println(myMotor.currentRef,4);  
+  Serial.print("Actual Speed:");
   Serial.println(myMotor.getActualSpeed(),4);
   
   /* read new duty clcle request */
   if (Serial.available())
   {
-    myMotor.speedRequest = Serial.parseFloat();
+    myMotor.setCurrentRef(Serial.parseFloat());
   }
   // wait a second so as not to send massive amounts of data
   delay(1000);

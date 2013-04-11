@@ -61,11 +61,12 @@ class BldcControl
         void     Config(void);
         void     CommutationControl(void);
         float    getActualSpeed(void);
+        void     setCurrentRef(float current);
 
         /* member variables */
-        uint32_t interruptCounter;
         float    speedRequest;
         int32_t  debug;
+        int16_t  currentRef;
     /*--------------------------------------------------------------------*/    
     private:  
         /* member methods */    
@@ -77,20 +78,20 @@ class BldcControl
         void      configureADC(void);
         void      configurePWMC(void);
         void      configurePMC(void);
-        int16_t   CurrentControl(int16_t iFbk);
+        int16_t   CurrentControl(int16_t iFbk, int16_t iRef);
         uint8_t   pwmSwitchingCU(uint8_t hallState);
         uint8_t   pwmSwitchingIU(uint8_t hallState);
         /* member variables */
+        uint32_t            interruptCounter;
         uint8_t             motorIndex;
-        float               actualSpeed;
         int16_t             rotorPosition;
         int16_t             phiElec;
         int16_t             phiElecOld;
+        int16_t             deltaPhi;
         uint16_t            pwmPeriod;
         machineProperties   motorProperties;
         uint8_t             previousHallState;
         int16_t             currentFbk;
-        int16_t             currentRef;
         int16_t             Kprp;
         uint16_t            Kint;
         int16_t             iInt;
