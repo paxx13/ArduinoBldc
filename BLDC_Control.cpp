@@ -85,8 +85,10 @@
 /* ADC related definitions */
 #define ADC_CLOCK           1000000 /* 1MHz frequency of ADC */
 #define ADC_REF             3.3     /* ADC reference voltage */
-#define ADC_MAX_VAL_12BIT   4095     
+#define ADC_MAX_VAL_12BIT   4095
 
+#define ADC_MAX_CUR          9.6    /* max value that can be mesured is 3.3V = 
+                                    /* 9.6 amps */
 #define ADC_VOLT_IN_AMPS     12     /* transfer gain of current sensor */
                                     /* (2.5 Volts = 30 Amps) */
 #define ADC_CUR_OFFSET       3102   /* 0 amps = 2.5 Volts in current sensor */
@@ -122,7 +124,9 @@
 *******************************************************************************/
 uint8_t             MotorCount = 0;
 static BldcControl* motors[MAX_MOTORS];
-const int8_t        commutationTable[8][3] = 
+
+/* table for clockwise commutation */
+commutationTable commutationTableCW = 
 {   { 0, 0, 0}, /* illegal hall state 000 */
     {-1, 0, 1}, /* 001 */
     { 1,-1, 0}, /* 010 */
@@ -130,6 +134,18 @@ const int8_t        commutationTable[8][3] =
     { 0, 1,-1}, /* 100 */
     {-1, 1, 0}, /* 101 */
     { 1, 0,-1}, /* 110 */
+    { 0, 0, 0}, /* illegal hall state 111 */
+};
+
+/* table for counter clockwise commutation */
+commutationTable commutationTableCCW = 
+{   { 0, 0, 0}, /* illegal hall state 000 */
+    { 1, 0,-1}, /* 001 */
+    {-1, 1, 0}, /* 010 */
+    { 0, 1,-1}, /* 011 */
+    { 0,-1, 1}, /* 100 */
+    { 1,-1, 0}, /* 101 */
+    {-1, 0, 1}, /* 110 */
     { 0, 0, 0}, /* illegal hall state 111 */
 };
 
@@ -387,70 +403,45 @@ void BldcControl::configurePWMC(void)
                                 bit 3 = Hall Sensor 3
     descritpion:    sets PWM registers for unipolar complementary switching
 ------------------------------------------------------------------------------*/
-uint8_t BldcControl::pwmSwitchingCU(uint8_t hallState)
+void BldcControl::pwmSwitchingCU(uint8_t hallState)
 {
-    uint8_t phiElec;
+    uint32_t setOverwrite = 0;
+    uint32_t clearOverwrite = 0;
 
-    if (0b101U == hallState)
+    /* set phase U freewheeling */
+    if ((*(this->actualCommutation))[hallState][0] == 0)
     {
-        /* commutate V to U */ 
-        PWM->PWM_OSS |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) |
-                           PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-
-        phiElec = 0;
+        setOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
     }
-    else if (0b001U == hallState)
+    else 
     {
-        /* commutate W to U */ 
-        PWM->PWM_OSS |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U) |
-                           PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-        
-        phiElec = 60;
+        clearOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
     }
-    else if (0b011U == hallState)
+    
+    /* set phase V freewheeling */
+    if ((*(this->actualCommutation))[hallState][1] == 0)
     {
-        /* commutate W to V */ 
-        PWM->PWM_OSS |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U) |
-                           PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
-        
-        phiElec = 120;
+        setOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
     }
-    else if (0b010U == hallState)
+    else 
     {
-        /* commutate U to V */ 
-        PWM->PWM_OSS |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) |
-                           PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-        
-       phiElec = 180;
+        clearOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
     }
-    else if (0b110U == hallState)
+    
+    /* set phase W freewheeling */
+    if ((*(this->actualCommutation))[hallState][2] == 0)
     {
-        /* commutate U to W */
-        PWM->PWM_OSS |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U) |
-                           PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-        
-        phiElec = 240;
+        setOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
     }
-    else if (0b100U == hallState)
+    else 
     {
-        /* commutate V to W */
-        PWM->PWM_OSS |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
-        PWM->PWM_OSCUPD |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U) |
-                           PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
-        
-        phiElec = 300;
-    }
-    else
-    {
-        /* illegal Hall state */
+        clearOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
     }
 
-    return phiElec;
+    PWM->PWM_OSS |= setOverwrite;
+    PWM->PWM_OSCUPD |= clearOverwrite;
+
+    return;
 }
 
 /*------------------------------------------------------------------------------
@@ -596,6 +587,7 @@ void BldcControl::Config(void)
     configurePWMC();
 
     /* set motor properties */
+    this->actualCommutation = &commutationTableCW;
     motorProperties.polePairs = 4;
     Kprp = 1;
     Kint = 0;
@@ -617,7 +609,7 @@ void BldcControl::CommutationControl(void)
     int16_t  Ifilt;
 
 SET_DEBUG_PIN;
-    interruptCounter++;
+    this->interruptCounter++;
 
     /* read hall sensors */
     hallState = (uint8_t)((HALL1_STATE | (HALL2_STATE<<1) | (HALL3_STATE<<2))&
@@ -635,27 +627,24 @@ SET_DEBUG_PIN;
 
     /* run current control */
     tmp_dc     = currentRef;//CurrentControl(Ifilt, currentRef);
-    debug      = tmp_dc;
+    debug      = hallState;
 
     /* change commutation if hall state changed */
     if (hallState != previousHallState)
     {
         /* set outputs according to the commutation cycles */
-        phiElec = pwmSwitchingCU(hallState);
+        pwmSwitchingCU(hallState);
         
         /* save current hall state */
         previousHallState = hallState;
         
         /* calculate rotor position */
-        deltaPhi = (int16_t)(phiElec - phiElecOld);
-        deltaPhi = (deltaPhi==-300)? 60:deltaPhi;
-        deltaPhi = (deltaPhi== 300)?-60:deltaPhi;
-        phiElecOld = phiElec;
+        deltaPhi = (this->rotDirection == 1)?+60:-60;
         rotorPosition +=  (deltaPhi / motorProperties.polePairs);
         rotorPosition = rotorPosition%360;
         
         /* calculate speed */
-        interruptCounter = 0;
+        this->interruptCounter = 0;
     }
     else
     {
@@ -664,11 +653,14 @@ SET_DEBUG_PIN;
 
     /* update duty cycle */
     PWM->PWM_CH_NUM[PWM_CHANNEL_PHU].PWM_CDTYUPD = (int16_t)tmp_per + 
-                      (commutationTable[hallState][0] * (int16_t)tmp_dc);
+                      (((*(this->actualCommutation))[hallState][0]) * 
+                      (int16_t)tmp_dc);
     PWM->PWM_CH_NUM[PWM_CHANNEL_PHV].PWM_CDTYUPD = (int16_t)tmp_per +
-                      (commutationTable[hallState][1] * (int16_t)tmp_dc);
+                      (((*(this->actualCommutation))[hallState][1]) * 
+                      (int16_t)tmp_dc);
     PWM->PWM_CH_NUM[PWM_CHANNEL_PHW].PWM_CDTYUPD = (int16_t)tmp_per +
-                      (commutationTable[hallState][2] * (int16_t)tmp_dc);
+                      (((*(this->actualCommutation))[hallState][2]) * 
+                      (int16_t)tmp_dc);
 
     /* enable update */
     PWM->PWM_SCUC = PWM_SCUC_UPDULOCK;
@@ -721,11 +713,21 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
     Name:           setCurrentRef
     parameters:     current - motor current reference in amps
     descritpion:    sets the raw value of the current reference for inner loop
-                    control
+                    control. the input is limited to the maximum allowed current
 ------------------------------------------------------------------------------*/
 void BldcControl::setCurrentRef(float current)
 {
-    this->currentRef = (int16_t)((current / ADC_VOLT_IN_AMPS) *
+    /* limit current reference */
+    current = (current > ADC_MAX_CUR)?ADC_MAX_CUR:current;
+    current = (current < -ADC_MAX_CUR)?-ADC_MAX_CUR:current;
+
+    /* set rotational direction */
+    this->rotDirection = (current >= 0)?1:-1;
+    this->actualCommutation = (this->rotDirection == 1)?&commutationTableCW:
+                                                  &commutationTableCCW;
+
+    /* set raw value of current reference */
+    this->currentRef = (int16_t)((current/ ADC_VOLT_IN_AMPS) *
                                  (ADC_MAX_VAL_12BIT / ADC_REF));
     return;
 }
@@ -740,8 +742,8 @@ float BldcControl::getActualSpeed(void)
     float actualSpeed;
 
     actualSpeed = (float)(CTRL_FRQ / this->interruptCounter) * 
-                      ((((float)(deltaPhi) / this->motorProperties.polePairs ))/360) *
-                      (float)SEC_PER_MIN;
+                ((((float)(deltaPhi) / this->motorProperties.polePairs ))/360) *
+                (float)SEC_PER_MIN;
 
     return actualSpeed;
 }

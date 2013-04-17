@@ -40,6 +40,7 @@
 #endif
 
 typedef enum { _timer1, _timer2, _Nbr_16timers } timer16_Sequence_t ;
+typedef int8_t commutationTable[8][3];
 
 #define MAX_MOTORS  1
 
@@ -79,11 +80,13 @@ class BldcControl
         void      configurePWMC(void);
         void      configurePMC(void);
         int16_t   CurrentControl(int16_t iFbk, int16_t iRef);
-        uint8_t   pwmSwitchingCU(uint8_t hallState);
+        void      pwmSwitchingCU(uint8_t hallState);
         uint8_t   pwmSwitchingIU(uint8_t hallState);
         /* member variables */
+        commutationTable    *actualCommutation;
         uint32_t            interruptCounter;
         uint8_t             motorIndex;
+        int8_t              rotDirection;
         int16_t             rotorPosition;
         int16_t             phiElec;
         int16_t             phiElecOld;
