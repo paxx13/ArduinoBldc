@@ -1,133 +1,133 @@
-﻿/*******************************************************************************
-  BLDC_Control.cpp - Library for brushless DC Motor Control.
-  Author:   Swen Wahl
-  Date:     07.03.2013
-  License:  Released into the public domain
-            uses API of Atmel Software Framework
-            http://asf.atmel.com/docs/latest/api.html
+/*******************************************************************************
+BLDC_Control.cpp - Library for brushless DC Motor Control.
+Author: Swen Wahl
+Date: 07.03.2013
+License: Released into the public domain
+uses API of Atmel Software Framework
+http://asf.atmel.com/docs/latest/api.html
 *******************************************************************************/
 
 #include "Arduino.h"
 #include "BLDC_Control.h"
 
 /*******************************************************************************
-           defines
+defines
 *******************************************************************************/
-#define DEAD_TIME       0.0000005/* 500 ns dead time */
+#define DEAD_TIME 0.0000005/* 500 ns dead time */
 #define SYS_CLOCK_84MHZ 84000000 /* system main clock is assumed to be 84MHz */
-#define MCK_CLOCK_42MHZ 42000000 /* arduino has prescaler for main peripheral 
-                                    clock of 2 from system clock */
+#define MCK_CLOCK_42MHZ 42000000 /* arduino has prescaler for main peripheral
+clock of 2 from system clock */
 
-#define CTRL_FRQ        30000   /* controller runs at 30kHz */
-#define CTRL_DELTM      1/CTRL_FRQ
-#define SEC_PER_MIN     60
+#define CTRL_FRQ 30000 /* controller runs at 30kHz */
+#define CTRL_DELTM 1/CTRL_FRQ
+#define SEC_PER_MIN 60
 
 /* filter constant for current feedback */
 /* value Bandwidth (normalized to 1 Hz) Rise time (samples)
-    1       0.1197                          3
-    2       0.0466                          8
-    3       0.0217                          16
-    4       0.0104                          34
-    5       0.0051                          69
-    6       0.0026                          140
-    7       0.0012                          280
-    8       0.0007                          561
+1 0.1197 3
+2 0.0466 8
+3 0.0217 16
+4 0.0104 34
+5 0.0051 69
+6 0.0026 140
+7 0.0012 280
+8 0.0007 561
 */
-#define FILTER_VALUE    1
+#define FILTER_VALUE 1
 
 
 /* PWM related definitions */
-#define PWM_SW_FRQ      30000            /* 30kHz switching frequency */
-#define PWM_PERIOD      (1 / PWM_SW_FRQ) /* PWM period */
+#define PWM_SW_FRQ 30000 /* 30kHz switching frequency */
+#define PWM_PERIOD (1 / PWM_SW_FRQ) /* PWM period */
 
 #define PWM_CHANNEL_PHU 0
 #define PWM_CHANNEL_PHV 1
 #define PWM_CHANNEL_PHW 2
 
-#define PWM_CH_PHU_BIT  (0x1U<<PWM_CHANNEL_PHU)
-#define PWM_CH_PHV_BIT  (0x1U<<PWM_CHANNEL_PHV)
-#define PWM_CH_PHW_BIT  (0x1U<<PWM_CHANNEL_PHW)
+#define PWM_CH_PHU_BIT (0x1U<<PWM_CHANNEL_PHU)
+#define PWM_CH_PHV_BIT (0x1U<<PWM_CHANNEL_PHV)
+#define PWM_CH_PHW_BIT (0x1U<<PWM_CHANNEL_PHW)
 
-#define PORT_PWM        PIOC
-#define PIN_PWM_UH      2   /* Port C */
-#define PIN_PWM_UL      3   /* Port C */
-#define PIN_PWM_VH      4   /* Port C */
-#define PIN_PWM_VL      5   /* Port C */
-#define PIN_PWM_WH      6   /* Port C */
-#define PIN_PWM_WL      7   /* Port C */
+#define PORT_PWM PIOC
+#define PIN_PWM_UH 2 /* Port C */
+#define PIN_PWM_UL 3 /* Port C */
+#define PIN_PWM_VH 4 /* Port C */
+#define PIN_PWM_VL 5 /* Port C */
+#define PIN_PWM_WH 6 /* Port C */
+#define PIN_PWM_WL 7 /* Port C */
 #define PIN_PWM_SETTING ((0x1U<<PIN_PWM_UH) | \
-                         (0x1U<<PIN_PWM_UL) | \
-                         (0x1U<<PIN_PWM_VH) | \
-                         (0x1U<<PIN_PWM_VL) | \
-                         (0x1U<<PIN_PWM_WH) | \
-                         (0x1U<<PIN_PWM_WL))
+(0x1U<<PIN_PWM_UL) | \
+(0x1U<<PIN_PWM_VH) | \
+(0x1U<<PIN_PWM_VL) | \
+(0x1U<<PIN_PWM_WH) | \
+(0x1U<<PIN_PWM_WL))
                          
 /* PIO related definitions */
-#define PORT_HALL1      PIOA
-#define PORT_HALL2      PIOD
-#define PORT_HALL3      PIOD
+#define PORT_HALL1 PIOA
+#define PORT_HALL2 PIOD
+#define PORT_HALL3 PIOD
 
-#define PIN_HALL1       15
-#define PIN_HALL2       1
-#define PIN_HALL3       3
+#define PIN_HALL1 15
+#define PIN_HALL2 1
+#define PIN_HALL3 3
 
-#define HALL1_STATE     ((PORT_HALL1 -> PIO_PDSR & (0x1U<<PIN_HALL1)) >> PIN_HALL1)
-#define HALL2_STATE     ((PORT_HALL2 -> PIO_PDSR & (0x1U<<PIN_HALL2)) >> PIN_HALL2)
-#define HALL3_STATE     ((PORT_HALL3 -> PIO_PDSR & (0x1U<<PIN_HALL3)) >> PIN_HALL3)
+#define HALL1_STATE ((PORT_HALL1 -> PIO_PDSR & (0x1U<<PIN_HALL1)) >> PIN_HALL1)
+#define HALL2_STATE ((PORT_HALL2 -> PIO_PDSR & (0x1U<<PIN_HALL2)) >> PIN_HALL2)
+#define HALL3_STATE ((PORT_HALL3 -> PIO_PDSR & (0x1U<<PIN_HALL3)) >> PIN_HALL3)
 
-#define PORT_DEBUG      PIOC
-#define PIN_DEBUG       16
-#define SET_DEBUG_PIN   (PORT_DEBUG->PIO_SODR |= (0x1U<<PIN_DEBUG))
-#define CLR_DEBUG_PIN   (PORT_DEBUG->PIO_CODR |= (0x1U<<PIN_DEBUG))
-#define TGL_DEBUG_PIN   (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
-                         else {SET_DEBUG_PIN})
+#define PORT_DEBUG PIOC
+#define PIN_DEBUG 16
+#define SET_DEBUG_PIN (PORT_DEBUG->PIO_SODR |= (0x1U<<PIN_DEBUG))
+#define CLR_DEBUG_PIN (PORT_DEBUG->PIO_CODR |= (0x1U<<PIN_DEBUG))
+#define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
+else {SET_DEBUG_PIN})
 
-/* ADC related definitions */
-#define ADC_CLOCK           1000000 /* 1MHz frequency of ADC */
-#define ADC_REF             3.3     /* ADC reference voltage */
-#define ADC_MAX_VAL_12BIT   4095
+/* ADC related definitions Der DAC gibt Spannungen zwischen (1/6) x VADVREF to (5/6) x VADVREF aus. Also zwischen 0.55V – 2.75V. Dazwischen ist er linear. Also 0.55V = 0 und 2.75V = 4095*/
+#define ADC_CLOCK 1000000 /* 1MHz frequency of ADC */
+#define ADC_REF 3.3 /* ADC reference voltage */
+#define ADC_MAX_VAL_12BIT 4095
 
-#define ADC_MAX_CUR          9.6    /* max value that can be mesured is 3.3V = 
-                                    /* 9.6 amps */
-#define ADC_VOLT_IN_AMPS     12     /* transfer gain of current sensor */
+#define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V =
+/* 9.6 amps */
+#define ADC_VOLT_IN_AMPS 12 /* transfer gain of current sensor */
                                     /* (2.5 Volts = 30 Amps) */
-#define ADC_CUR_OFFSET       3102   /* 0 amps = 2.5 Volts in current sensor */
+#define ADC_CUR_OFFSET 3102 /* 0 amps = 2.5 Volts in current sensor */
 
-#define ADC_CH_CUR_PHA     7     /* AD7 */
-#define ADC_CH_CUR_PHB     6     /* AD6 */
-#define ADC_CH_VOLT_PHA    5     /* AD5 */
-#define ADC_CH_VOLT_PHB    4     /* AD4 */
-#define ADC_CH_VOLT_PHC    3     /* AD3 */
+#define ADC_CH_CUR_PHA 7 /* AD7 */
+#define ADC_CH_CUR_PHB 6 /* AD6 */
+#define ADC_CH_VOLT_PHA 5 /* AD5 */
+#define ADC_CH_VOLT_PHB 4 /* AD4 */
+#define ADC_CH_VOLT_PHC 3 /* AD3 */
 
-#define BIT_ADC_CH_CUR_PHA     (0x1U<<ADC_CH_CUR_PHA)
-#define BIT_ADC_CH_CUR_PHB     (0x1U<<ADC_CH_CUR_PHB)
-#define BIT_ADC_CH_VOLT_PHA    (0x1U<<ADC_CH_VOLT_PHA)
-#define BIT_ADC_CH_VOLT_PHB    (0x1U<<ADC_CH_VOLT_PHB)
-#define BIT_ADC_CH_VOLT_PHC    (0x1U<<ADC_CH_VOLT_PHC)
+#define BIT_ADC_CH_CUR_PHA (0x1U<<ADC_CH_CUR_PHA)
+#define BIT_ADC_CH_CUR_PHB (0x1U<<ADC_CH_CUR_PHB)
+#define BIT_ADC_CH_VOLT_PHA (0x1U<<ADC_CH_VOLT_PHA)
+#define BIT_ADC_CH_VOLT_PHB (0x1U<<ADC_CH_VOLT_PHB)
+#define BIT_ADC_CH_VOLT_PHC (0x1U<<ADC_CH_VOLT_PHC)
 
-#define ADC_CH_CUR_PHU_RESULT  (ADC->ADC_CDR[ADC_CH_CUR_PHA])
-#define ADC_CH_CUR_PHV_RESULT  (ADC->ADC_CDR[ADC_CH_CUR_PHB])
+#define ADC_CH_CUR_PHU_RESULT (ADC->ADC_CDR[ADC_CH_CUR_PHA])
+#define ADC_CH_CUR_PHV_RESULT (ADC->ADC_CDR[ADC_CH_CUR_PHB])
 #define ADC_CH_VOLT_PHU_RESULT (ADC->ADC_CDR[BIT_ADC_CH_VOLT_PHA])
 #define ADC_CH_VOLT_PHV_RESULT (ADC->ADC_CDR[BIT_ADC_CH_VOLT_PHB])
 #define ADC_CH_VOLT_PHW_RESULT (ADC->ADC_CDR[BIT_ADC_CH_VOLT_PHC])
 
-#define PORT_ADC        PIOA
-#define PIN_ADC_CH0     16      /* AD7 -> ch0 on arduino due */
-#define PIN_ADC_CH1     24      /* AD6 -> ch1 on arduino due */
-#define PIN_ADC_CH2     23      /* AD5 -> ch2 on arduino due */
-#define PIN_ADC_CH3     22      /* AD4 -> ch3 on arduino due */
-#define PIN_ADC_CH4     6       /* AD3 -> ch4 on arduino due */
-#define PIN_ADC_CH5     4       /* AD2 -> ch5 on arduino due */
+#define PORT_ADC PIOA
+#define PIN_ADC_CH0 16 /* AD7 -> ch0 on arduino due */
+#define PIN_ADC_CH1 24 /* AD6 -> ch1 on arduino due */
+#define PIN_ADC_CH2 23 /* AD5 -> ch2 on arduino due */
+#define PIN_ADC_CH3 22 /* AD4 -> ch3 on arduino due */
+#define PIN_ADC_CH4 6 /* AD3 -> ch4 on arduino due */
+#define PIN_ADC_CH5 4 /* AD2 -> ch5 on arduino due */
 
 /*******************************************************************************
-            static variables
+static variables
 *******************************************************************************/
-uint8_t             MotorCount = 0;
+static uint8_t MotorCount = 0;
 static BldcControl* motors[MAX_MOTORS];
 
 /* table for clockwise commutation */
-commutationTable commutationTableCW = 
-{   { 0, 0, 0}, /* illegal hall state 000 */
+commutationTable commutationTableCW =
+{ { 0, 0, 0}, /* illegal hall state 000 */
     {-1, 0, 1}, /* 001 */
     { 1,-1, 0}, /* 010 */
     { 0,-1, 1}, /* 011 */
@@ -138,8 +138,8 @@ commutationTable commutationTableCW =
 };
 
 /* table for counter clockwise commutation */
-commutationTable commutationTableCCW = 
-{   { 0, 0, 0}, /* illegal hall state 000 */
+commutationTable commutationTableCCW =
+{ { 0, 0, 0}, /* illegal hall state 000 */
     { 1, 0,-1}, /* 001 */
     {-1, 1, 0}, /* 010 */
     { 0, 1,-1}, /* 011 */
@@ -150,7 +150,7 @@ commutationTable commutationTableCCW =
 };
 
 /*******************************************************************************
-            interrupt handler
+interrupt handler
 *******************************************************************************/
 #if defined (useTimer1)
 void HANDLER_FOR_TIMER1(void) {
@@ -168,12 +168,12 @@ void HANDLER_FOR_TIMER2(void) {
 #endif
 
 /*******************************************************************************
-            private methods
+private methods
 *******************************************************************************/
 /*------------------------------------------------------------------------------
-    Name:           configurePMC
-    parameters:     -
-    descritpion:    initializes the Power Management controller
+Name: configurePMC
+parameters: -
+descritpion: initializes the Power Management controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePMC(void)
 {
@@ -188,25 +188,25 @@ void BldcControl::configurePMC(void)
 }
 
 /*------------------------------------------------------------------------------
-    Name:           startTimer
-    parameters:     tc          - timer counter
-                    channel     - timer channel
-                    irq         - isr request
-                    frequency   - frequency of inetrrupts
-    descritpion:    initializes timer for periodic interrupt generation
+Name: startTimer
+parameters: tc - timer counter
+channel - timer channel
+irq - isr request
+frequency - frequency of inetrrupts
+descritpion: initializes timer for periodic interrupt generation
 ------------------------------------------------------------------------------*/
-void BldcControl::configureTimerInterrupt(Tc         *tc, 
-                                          uint32_t   channel, 
-                                          IRQn_Type  irq, 
-                                          uint32_t   frequency) 
+void BldcControl::configureTimerInterrupt(Tc *tc,
+                                          uint32_t channel,
+                                          IRQn_Type irq,
+                                          uint32_t frequency)
 {
         pmc_set_writeprotect(false);
         pmc_enable_periph_clk((uint32_t)irq);
-        TC_Configure(tc, 
-                     channel, 
-                     TC_CMR_WAVE | TC_CMR_WAVSEL_UP_RC | 
+        TC_Configure(tc,
+                     channel,
+                     TC_CMR_WAVE | TC_CMR_WAVSEL_UP_RC |
                         TC_CMR_TCCLKS_TIMER_CLOCK4);
-        uint32_t rc = VARIANT_MCK/128/frequency; //128 because we selected 
+        uint32_t rc = VARIANT_MCK/128/frequency; //128 because we selected
                                                  //TIMER_CLOCK4 above
         TC_SetRA(tc, channel, rc/2); //50% high, 50% low
         TC_SetRC(tc, channel, rc);
@@ -217,63 +217,63 @@ void BldcControl::configureTimerInterrupt(Tc         *tc,
 }
 
 /*------------------------------------------------------------------------------
-    Name:           configurePIOC
-    parameters:     -
-    descritpion:    initializes the PIO controller
+Name: configurePIOC
+parameters: -
+descritpion: initializes the PIO controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePIOC(void)
 {
     /* set pio registers to enable PWM at desired PINs (PC2 to PC7) */
     PIOC -> PIO_ABSR |= PIN_PWM_SETTING; /* enables Peripherial B */
-    PIOC -> PIO_PDR  |= PIN_PWM_SETTING; /* disable manual port control */
-    PIOC -> PIO_MDDR |= PIN_PWM_SETTING; /* disable multi drive on line */   
+    PIOC -> PIO_PDR |= PIN_PWM_SETTING; /* disable manual port control */
+    PIOC -> PIO_MDDR |= PIN_PWM_SETTING; /* disable multi drive on line */
     PIOC -> PIO_PUER |= PIN_PWM_SETTING; /* enable pull up resistors */
 
     /* set registers for hall inputs */
-    PORT_HALL1 -> PIO_PUER |= (1U<<PIN_HALL1);  /* enable pull up resistors */
-    PORT_HALL1 -> PIO_PER  |= (1U<<PIN_HALL1);  /* enable manual port control */
-    PORT_HALL1 -> PIO_ODR  |= (1U<<PIN_HALL1);  /* enable output  */
-    PORT_HALL1 -> PIO_ODSR |= (1U<<PIN_HALL1);  /* drive 0 */
-    PORT_HALL1 -> PIO_IFDR |= (1U<<PIN_HALL1);  /* disable interrupt */
-    PORT_HALL1 -> PIO_MDDR |= (1U<<PIN_HALL1);  /* disable multi drive on line */
+    PORT_HALL1 -> PIO_PUER |= (1U<<PIN_HALL1); /* enable pull up resistors */
+    PORT_HALL1 -> PIO_PER |= (1U<<PIN_HALL1); /* enable manual port control */
+    PORT_HALL1 -> PIO_ODR |= (1U<<PIN_HALL1); /* enable output */
+    PORT_HALL1 -> PIO_ODSR |= (1U<<PIN_HALL1); /* drive 0 */
+    PORT_HALL1 -> PIO_IFDR |= (1U<<PIN_HALL1); /* disable interrupt */
+    PORT_HALL1 -> PIO_MDDR |= (1U<<PIN_HALL1); /* disable multi drive on line */
     
-    PORT_HALL2 -> PIO_PUER |= (1U<<PIN_HALL2);  /* enable pull up resistors */
-    PORT_HALL2 -> PIO_PER  |= (1U<<PIN_HALL2);  /* enable manual port control */
-    PORT_HALL2 -> PIO_ODR  |= (1U<<PIN_HALL2);  /* enable output  */
-    PORT_HALL2 -> PIO_ODSR |= (1U<<PIN_HALL2);  /* drive 0 */
-    PORT_HALL2 -> PIO_IFDR |= (1U<<PIN_HALL2);  /* disable interrupt */
-    PORT_HALL2 -> PIO_MDDR |= (1U<<PIN_HALL2);  /* disable multi drive on line */
+    PORT_HALL2 -> PIO_PUER |= (1U<<PIN_HALL2); /* enable pull up resistors */
+    PORT_HALL2 -> PIO_PER |= (1U<<PIN_HALL2); /* enable manual port control */
+    PORT_HALL2 -> PIO_ODR |= (1U<<PIN_HALL2); /* enable output */
+    PORT_HALL2 -> PIO_ODSR |= (1U<<PIN_HALL2); /* drive 0 */
+    PORT_HALL2 -> PIO_IFDR |= (1U<<PIN_HALL2); /* disable interrupt */
+    PORT_HALL2 -> PIO_MDDR |= (1U<<PIN_HALL2); /* disable multi drive on line */
     
-    PORT_HALL3 -> PIO_PUER |= (1U<<PIN_HALL3);  /* enable pull up resistors */
-    PORT_HALL3 -> PIO_PER  |= (1U<<PIN_HALL3);  /* enable manual port control */
-    PORT_HALL3 -> PIO_ODR  |= (1U<<PIN_HALL3);  /* enable output  */
-    PORT_HALL3 -> PIO_ODSR |= (1U<<PIN_HALL3);  /* drive 0 */
-    PORT_HALL3 -> PIO_IFDR |= (1U<<PIN_HALL3);  /* disable interrupt */
-    PORT_HALL3 -> PIO_MDDR |= (1U<<PIN_HALL3);  /* disable multi drive on line */
+    PORT_HALL3 -> PIO_PUER |= (1U<<PIN_HALL3); /* enable pull up resistors */
+    PORT_HALL3 -> PIO_PER |= (1U<<PIN_HALL3); /* enable manual port control */
+    PORT_HALL3 -> PIO_ODR |= (1U<<PIN_HALL3); /* enable output */
+    PORT_HALL3 -> PIO_ODSR |= (1U<<PIN_HALL3); /* drive 0 */
+    PORT_HALL3 -> PIO_IFDR |= (1U<<PIN_HALL3); /* disable interrupt */
+    PORT_HALL3 -> PIO_MDDR |= (1U<<PIN_HALL3); /* disable multi drive on line */
     
     /* setup debug Pin */
-    PORT_DEBUG -> PIO_PUDR |= (1U<<PIN_DEBUG);  /* disable pull up resistors */
-    PORT_DEBUG -> PIO_PER  |= (1U<<PIN_DEBUG);  /* enable manual port control */
-    PORT_DEBUG -> PIO_OER  |= (1U<<PIN_DEBUG);  /* enable output  */
-    PORT_DEBUG -> PIO_ODSR |= (1U<<PIN_DEBUG);  /* drive 0 */
-    PORT_DEBUG -> PIO_IFDR |= (1U<<PIN_DEBUG);  /* disable interrupt */
-    PORT_DEBUG -> PIO_MDDR |= (1U<<PIN_DEBUG);  /* disable multi drive on line */
+    PORT_DEBUG -> PIO_PUDR |= (1U<<PIN_DEBUG); /* disable pull up resistors */
+    PORT_DEBUG -> PIO_PER |= (1U<<PIN_DEBUG); /* enable manual port control */
+    PORT_DEBUG -> PIO_OER |= (1U<<PIN_DEBUG); /* enable output */
+    PORT_DEBUG -> PIO_ODSR |= (1U<<PIN_DEBUG); /* drive 0 */
+    PORT_DEBUG -> PIO_IFDR |= (1U<<PIN_DEBUG); /* disable interrupt */
+    PORT_DEBUG -> PIO_MDDR |= (1U<<PIN_DEBUG); /* disable multi drive on line */
 }
 
 /*------------------------------------------------------------------------------
-    Name:           configureADC
-    parameters:     -
-    descritpion:    initializes the ADC controller
-                    - no DMA transfers
-                    - no startup delay
-                    - 12 bit resolution
-                    - trigger on PWM event line 0
+Name: configureADC
+parameters: -
+descritpion: initializes the ADC controller
+- no DMA transfers
+- no startup delay
+- 12 bit resolution
+- trigger on PWM event line 0
 ------------------------------------------------------------------------------*/
 void BldcControl::configureADC(void)
 {
     uint32_t prescaler;
 
-    /*  Reset the controller. */
+    /* Reset the controller. */
     ADC->ADC_CR = ADC_CR_SWRST;
     
     /* Reset Mode Register. */
@@ -287,7 +287,7 @@ void BldcControl::configureADC(void)
     /* set clock prescaler */
     prescaler = MCK_CLOCK_42MHZ / (2 * ADC_CLOCK) - 1;
     ADC->ADC_MR |= ADC_MR_PRESCAL(prescaler) |
-                   ADC_MR_STARTUP_SUT0;         /* no startup delay */
+                   ADC_MR_STARTUP_SUT0; /* no startup delay */
 
 
     adc_configure_timing(ADC, 0, ADC_SETTLING_TIME_3, 1);
@@ -296,29 +296,29 @@ void BldcControl::configureADC(void)
     ADC->ADC_MR |= ADC_MR_LOWRES_BITS_12;
     
     /* enable channels */
-    ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA | BIT_ADC_CH_CUR_PHB | 
-                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB | 
+    ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA | BIT_ADC_CH_CUR_PHB |
+                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
                      BIT_ADC_CH_VOLT_PHC;
 
     /* set ADC trigger */
-    ADC->ADC_MR |= ADC_MR_TRGEN_EN |        /* enable trigger */
+    ADC->ADC_MR |= ADC_MR_TRGEN_EN | /* enable trigger */
                    ADC_MR_TRGSEL_ADC_TRIG4; /* trigegred by PWM event line 0 */
 }
 
 /*------------------------------------------------------------------------------
-    Name:           configurePWMC
-    parameters:     -
-    descritpion:    initializes the PWM controller
+Name: configurePWMC
+parameters: -
+descritpion: initializes the PWM controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePWMC(void)
 {
-    uint32_t clka     = 0;               /* clock A not used */
-    uint32_t clkb     = 0;               /* clock B not used */
-    uint32_t mck      = MCK_CLOCK_42MHZ;
-    uint16_t duty     = 0;
+    uint32_t clka = 0; /* clock A not used */
+    uint32_t clkb = 0; /* clock B not used */
+    uint32_t mck = MCK_CLOCK_42MHZ;
+    uint16_t duty = 0;
     uint16_t deadTime;
     
-    pwmPeriod   = MCK_CLOCK_42MHZ / PWM_SW_FRQ;
+    pwmPeriod = MCK_CLOCK_42MHZ / PWM_SW_FRQ;
     
     deadTime = (uint16_t)(pwmPeriod * (DEAD_TIME * PWM_SW_FRQ * 2));
 
@@ -330,37 +330,37 @@ void BldcControl::configurePWMC(void)
     PWMC_ConfigureClocks(clka, clkb, mck);
 
     /* initialize all 3 channels */
-    PWMC_ConfigureChannelExt(PWM, 
-                          PWM_CHANNEL_PHU,  /* channel ID */ 
+    PWMC_ConfigureChannelExt(PWM,
+                          PWM_CHANNEL_PHU, /* channel ID */
                           PWM_CMR_CPRE_MCK, /* use main clock */
-                          PWM_CMR_CALG,     /* center alligned */
-                          0,                /* polarity low level */
-                          0,                /* event counter = 0 */
-                          PWM_CMR_DTE,      /* enable dead time */
-                          0,                /* no inversion of dead time H */
-                          0);               /* no inversion of dead time L */                          
-    PWMC_ConfigureChannelExt(PWM, 
-                          PWM_CHANNEL_PHV,    /* channel ID */
-                          PWM_CMR_CPRE_MCK, 
-                          PWM_CMR_CALG,    /* center alligned */
-                          0,                /* polarity low level */
-                          0,                /* event counter = 0 */
-                          PWM_CMR_DTE,      /* enable dead time */
-                          0,                /* no inversion of dead time H */
-                          0);               /* no inversion of dead time L */
-    PWMC_ConfigureChannelExt(PWM, 
-                          PWM_CHANNEL_PHW,    /* channel ID */
-                          PWM_CMR_CPRE_MCK, 
-                          PWM_CMR_CALG,     /* center alligned */
-                          0,                /* polarity low level */
-                          0,                /* event counter = 0 */
-                          PWM_CMR_DTE,      /* enable dead time */
-                          0,                /* no inversion of dead time H */
-                          0);               /* no inversion of dead time L */
+                          PWM_CMR_CALG, /* center alligned */
+                          0, /* polarity low level */
+                          0, /* event counter = 0 */
+                          PWM_CMR_DTE, /* enable dead time */
+                          0, /* no inversion of dead time H */
+                          0); /* no inversion of dead time L */
+    PWMC_ConfigureChannelExt(PWM,
+                          PWM_CHANNEL_PHV, /* channel ID */
+                          PWM_CMR_CPRE_MCK,
+                          PWM_CMR_CALG, /* center alligned */
+                          0, /* polarity low level */
+                          0, /* event counter = 0 */
+                          PWM_CMR_DTE, /* enable dead time */
+                          0, /* no inversion of dead time H */
+                          0); /* no inversion of dead time L */
+    PWMC_ConfigureChannelExt(PWM,
+                          PWM_CHANNEL_PHW, /* channel ID */
+                          PWM_CMR_CPRE_MCK,
+                          PWM_CMR_CALG, /* center alligned */
+                          0, /* polarity low level */
+                          0, /* event counter = 0 */
+                          PWM_CMR_DTE, /* enable dead time */
+                          0, /* no inversion of dead time H */
+                          0); /* no inversion of dead time L */
                              
-    PWMC_ConfigureSyncChannel(PWM, 
-                              PWM_SCM_SYNC0|PWM_SCM_SYNC1|PWM_SCM_SYNC2, 
-                              PWM_SCM_UPDM_MODE0, 
+    PWMC_ConfigureSyncChannel(PWM,
+                              PWM_SCM_SYNC0|PWM_SCM_SYNC1|PWM_SCM_SYNC2,
+                              PWM_SCM_UPDM_MODE0,
                               PWM_SCM_PTRM,
                               PWM_SCM_PTRCS(0)) ;
 
@@ -396,12 +396,12 @@ void BldcControl::configurePWMC(void)
 }
 
 /*------------------------------------------------------------------------------
-    Name:           pwmSwitchingCU
-    parameters:     hallState - states of hall sensors bit coded 
-                                bit 1 = Hall Sensor 1
-                                bit 2 = Hall Sensor 2
-                                bit 3 = Hall Sensor 3
-    descritpion:    sets PWM registers for unipolar complementary switching
+Name: pwmSwitchingCU
+parameters: hallState - states of hall sensors bit coded
+bit 1 = Hall Sensor 1
+bit 2 = Hall Sensor 2
+bit 3 = Hall Sensor 3
+descritpion: sets PWM registers for unipolar complementary switching
 ------------------------------------------------------------------------------*/
 void BldcControl::pwmSwitchingCU(uint8_t hallState)
 {
@@ -413,7 +413,7 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     {
         setOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
     }
-    else 
+    else
     {
         clearOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
     }
@@ -423,7 +423,7 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     {
         setOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
     }
-    else 
+    else
     {
         clearOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
     }
@@ -433,7 +433,7 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     {
         setOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
     }
-    else 
+    else
     {
         clearOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
     }
@@ -445,12 +445,12 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
 }
 
 /*------------------------------------------------------------------------------
-    Name:           pwmSwitchingIU
-    parameters:     hallState - states of hall sensors bit coded 
-                                bit 1 = Hall Sensor 1
-                                bit 2 = Hall Sensor 2
-                                bit 3 = Hall Sensor 3
-    descritpion:    sets PWM registers for unipolar independent switching
+Name: pwmSwitchingIU
+parameters: hallState - states of hall sensors bit coded
+bit 1 = Hall Sensor 1
+bit 2 = Hall Sensor 2
+bit 3 = Hall Sensor 3
+descritpion: sets PWM registers for unipolar independent switching
 ------------------------------------------------------------------------------*/
 uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
 {
@@ -469,10 +469,10 @@ uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
     }
     else if (0b001U == hallState)
     {
-        /* commutate W to U */ 
+        /* commutate W to U */
         PWM->PWM_OOV = (PWM_CH_PHU_BIT<<0x10U);
-        PWM->PWM_OSS |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) | 
-                        PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U) | 
+        PWM->PWM_OSS |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) |
+                        PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U) |
                         (PWM_CH_PHW_BIT<<0x10U);
         PWM->PWM_OSCUPD |= PWM_CH_PHW_BIT;
         
@@ -480,7 +480,7 @@ uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
     }
     else if (0b011U == hallState)
     {
-        /* commutate W to V */ 
+        /* commutate W to V */
         PWM->PWM_OOV = (PWM_CH_PHV_BIT<<0x10U);
         PWM->PWM_OSS |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U) |
                         PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) |
@@ -491,7 +491,7 @@ uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
     }
     else if (0b010U == hallState)
     {
-        /* commutate U to V */ 
+        /* commutate U to V */
         PWM->PWM_OOV = (PWM_CH_PHV_BIT<<0x10U);
         PWM->PWM_OSS |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U) |
                         PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U) |
@@ -532,47 +532,47 @@ uint8_t BldcControl::pwmSwitchingIU(uint8_t hallState)
 
 
 /*******************************************************************************
-            public methods
+public methods
 *******************************************************************************/
 /*------------------------------------------------------------------------------
-    Name:           BldcControl
-    parameters:     -
-    descritpion:    constructor
+Name: BldcControl
+parameters: -
+descritpion: constructor
 ------------------------------------------------------------------------------*/
 BldcControl::BldcControl(void)
 {
-    if (MotorCount < MAX_MOTORS) 
+    if (MotorCount < MAX_MOTORS)
     {
         motors[MotorCount] = this;
-        this->motorIndex = MotorCount++; /* assign index to this instance */        
+        this->motorIndex = MotorCount++; /* assign index to this instance */
     }
 }
 
 /*------------------------------------------------------------------------------
-    Name:           Config
-    parameters:     -
-    descritpion:    initializes motor controler
+Name: Config
+parameters: -
+descritpion: initializes motor controler
 ------------------------------------------------------------------------------*/
 void BldcControl::Config(void)
 {
     /* configure Power Management */
     configurePMC();
 
-    if (this->motorIndex < MAX_MOTORS) 
+    if (this->motorIndex < MAX_MOTORS)
     {
         /* setup timer for interrupt generation */
         #if defined (useTimer1)
         if (this->motorIndex == 0)
-            configureTimerInterrupt(TC_FOR_TIMER1, 
-                                    CHANNEL_FOR_TIMER1, 
-                                    IRQn_FOR_TIMER1, 
+            configureTimerInterrupt(TC_FOR_TIMER1,
+                                    CHANNEL_FOR_TIMER1,
+                                    IRQn_FOR_TIMER1,
                                     CTRL_FRQ);
-        #endif    
+        #endif
         #if defined (_useTimer2)
         if (this->motorIndex == 1)
-            configureTimerInterrupt(TC_FOR_TIMER2, 
-                                    CHANNEL_FOR_TIMER2, 
-                                    IRQn_FOR_TIMER2, 
+            configureTimerInterrupt(TC_FOR_TIMER2,
+                                    CHANNEL_FOR_TIMER2,
+                                    IRQn_FOR_TIMER2,
                                     CTRL_FRQ);
         #endif
     }
@@ -589,24 +589,24 @@ void BldcControl::Config(void)
     /* set motor properties */
     this->actualCommutation = &commutationTableCW;
     motorProperties.polePairs = 4;
-    Kprp = 1;
-    Kint = 0;
+    Kprp = 2;
+    Kint = 1;
     
     return;
 }
 
 /*------------------------------------------------------------------------------
-    Name:           Controller
-    parameters:     -
-    descritpion:    inner loop control, complentary unipolar PWM
+Name: Controller
+parameters: -
+descritpion: inner loop control, complentary unipolar PWM
 ------------------------------------------------------------------------------*/
 void BldcControl::CommutationControl(void)
 {
-    uint8_t  hallState;
+    uint8_t hallState;
     uint16_t tmp_per = pwmPeriod/2;
-    int16_t  tmp_dc;
-    int16_t  Iu, Iv, Iw;
-    int16_t  Ifilt;
+    int16_t tmp_dc;
+    int16_t Iu, Iv, Iw;
+    int16_t Ifilt;
 
 SET_DEBUG_PIN;
     this->interruptCounter++;
@@ -626,8 +626,8 @@ SET_DEBUG_PIN;
     Ifilt = IfbkFilt >> FILTER_VALUE;
 
     /* run current control */
-    tmp_dc     = currentRef;//CurrentControl(Ifilt, currentRef);
-    debug      = hallState;
+    tmp_dc = CurrentControl(Ifilt, currentRef);
+    debug = hallState;
 
     /* change commutation if hall state changed */
     if (hallState != previousHallState)
@@ -640,7 +640,7 @@ SET_DEBUG_PIN;
         
         /* calculate rotor position */
         deltaPhi = (this->rotDirection == 1)?+60:-60;
-        rotorPosition +=  (deltaPhi / motorProperties.polePairs);
+        rotorPosition += (deltaPhi / motorProperties.polePairs);
         rotorPosition = rotorPosition%360;
         
         /* calculate speed */
@@ -652,14 +652,14 @@ SET_DEBUG_PIN;
     }
 
     /* update duty cycle */
-    PWM->PWM_CH_NUM[PWM_CHANNEL_PHU].PWM_CDTYUPD = (int16_t)tmp_per + 
-                      (((*(this->actualCommutation))[hallState][0]) * 
+    PWM->PWM_CH_NUM[PWM_CHANNEL_PHU].PWM_CDTYUPD = (int16_t)tmp_per +
+                      (((*(this->actualCommutation))[hallState][0]) *
                       (int16_t)tmp_dc);
     PWM->PWM_CH_NUM[PWM_CHANNEL_PHV].PWM_CDTYUPD = (int16_t)tmp_per +
-                      (((*(this->actualCommutation))[hallState][1]) * 
+                      (((*(this->actualCommutation))[hallState][1]) *
                       (int16_t)tmp_dc);
     PWM->PWM_CH_NUM[PWM_CHANNEL_PHW].PWM_CDTYUPD = (int16_t)tmp_per +
-                      (((*(this->actualCommutation))[hallState][2]) * 
+                      (((*(this->actualCommutation))[hallState][2]) *
                       (int16_t)tmp_dc);
 
     /* enable update */
@@ -667,42 +667,59 @@ SET_DEBUG_PIN;
 
     /* debug output */
     analogWriteResolution(12);
-    analogWrite(66,currentFbk); /* DAC0 */
+    analogWrite(66,tmp_dc); /* DAC0 */
     analogWrite(67,Ifilt); /* DAC1 */
 CLR_DEBUG_PIN;
 }
 
 /*------------------------------------------------------------------------------
-    Name:           CurrentControl
-    parameters:     -
-    descritpion:    controls the DC bus current
+Name: CurrentControl
+parameters: -
+descritpion: controls the DC bus current
 ------------------------------------------------------------------------------*/
 int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 {
     int16_t iErr;
     int16_t iOut;
     int16_t iPrp;
-    int16_t iInt;
+    
 
     /* calculate error */
     iErr = iRef - iFbk;
     
     /* proportional path */
-    iPrp = iErr * this->Kprp;
+    iPrp = iErr >> this->Kprp;
     
     /* integral path */
-    //iInt += (int16_t)(this->Kint * CTRL_DELTM * ((float)(iInt - iErr)));
-    
-    iOut = iPrp + iInt;
+   if (iErr > 0)
+	{
+		iInt = iInt + Kint;
+	}
+	else if (iErr < 0)
+	{
+		iInt = iInt - Kint;
+	}
+	/* integral value limiter - anti wind up */
+	if (iInt > (this->pwmPeriod/8))
+    {
+        iInt = (this->pwmPeriod/8);
+    }
+    else if (iInt < -((int16_t)(this->pwmPeriod/8)))
+    {
+        iInt = -((int16_t)(this->pwmPeriod/8));
+    }
+	
+	
+    iOut =  iPrp + iInt;
 
     /* limit output */
     if (iOut > (this->pwmPeriod/2))
     {
         iOut = (this->pwmPeriod/2);
     }
-    else if (iOut < (-this->pwmPeriod/2))
+    else if (iOut <= 0)
     {
-        iOut = (-this->pwmPeriod/2);
+        iOut = 0;
     }
     
     
@@ -710,10 +727,10 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 }
 
 /*------------------------------------------------------------------------------
-    Name:           setCurrentRef
-    parameters:     current - motor current reference in amps
-    descritpion:    sets the raw value of the current reference for inner loop
-                    control. the input is limited to the maximum allowed current
+Name: setCurrentRef
+parameters: current - motor current reference in amps
+descritpion: sets the raw value of the current reference for inner loop
+control. the input is limited to the maximum allowed current
 ------------------------------------------------------------------------------*/
 void BldcControl::setCurrentRef(float current)
 {
@@ -727,24 +744,25 @@ void BldcControl::setCurrentRef(float current)
                                                   &commutationTableCCW;
 
     /* set raw value of current reference */
-    this->currentRef = (int16_t)((current/ ADC_VOLT_IN_AMPS) *
+    this->currentRef = (int16_t)((abs(current)/ ADC_VOLT_IN_AMPS) *
                                  (ADC_MAX_VAL_12BIT / ADC_REF));
     return;
 }
 
 /*------------------------------------------------------------------------------
-    Name:           getActualSpeed
-    parameters:     -
-    descritpion:    returns the actual speed of the machine in rpm
+Name: getActualSpeed
+parameters: -
+descritpion: returns the actual speed of the machine in rpm
 ------------------------------------------------------------------------------*/
 float BldcControl::getActualSpeed(void)
 {
     float actualSpeed;
 
-    actualSpeed = (float)(CTRL_FRQ / this->interruptCounter) * 
+    actualSpeed = (float)(CTRL_FRQ / this->interruptCounter) *
                 ((((float)(deltaPhi) / this->motorProperties.polePairs ))/360) *
                 (float)SEC_PER_MIN;
 
     return actualSpeed;
 }
+
 
