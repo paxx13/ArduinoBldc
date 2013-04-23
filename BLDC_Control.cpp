@@ -1,4 +1,4 @@
-﻿/*******************************************************************************
+/*******************************************************************************
 BLDC_Control.cpp - Library for brushless DC Motor Control.
 Author: Swen Wahl
 Date: 07.03.2013
@@ -82,7 +82,7 @@ clock of 2 from system clock */
 #define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
 else {SET_DEBUG_PIN})
 
-/* ADC related definitions Der DAC gibt Spannungen zwischen (1/6) x VADVREF to (5/6) x VADVREF aus. Also zwischen 0.55V – 2.75V. Dazwischen ist er linear. Also 0.55V = 0 und 2.75V = 4095*/*/
+/* ADC related definitions Der DAC gibt Spannungen zwischen (1/6) x VADVREF to (5/6) x VADVREF aus. Also zwischen 0.55V – 2.75V. Dazwischen ist er linear. Also 0.55V = 0 und 2.75V = 4095*/
 #define ADC_CLOCK 1000000 /* 1MHz frequency of ADC */
 #define ADC_REF 3.3 /* ADC reference voltage */
 #define ADC_MAX_VAL_12BIT 4095
@@ -122,7 +122,7 @@ else {SET_DEBUG_PIN})
 /*******************************************************************************
 static variables
 *******************************************************************************/
-uint8_t MotorCount = 0;
+static uint8_t MotorCount = 0;
 static BldcControl* motors[MAX_MOTORS];
 
 /* table for clockwise commutation */
@@ -589,7 +589,7 @@ void BldcControl::Config(void)
     /* set motor properties */
     this->actualCommutation = &commutationTableCW;
     motorProperties.polePairs = 4;
-    Kprp = 3;
+    Kprp = 2;
     Kint = 1;
     
     return;
@@ -700,13 +700,13 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 		iInt = iInt - Kint;
 	}
 	/* integral value limiter - anti wind up */
-	if (iInt > (this->pwmPeriod/4))
+	if (iInt > (this->pwmPeriod/8))
     {
-        iInt = (this->pwmPeriod/4);
+        iInt = (this->pwmPeriod/8);
     }
-    else if (iInt < -(this->pwmPeriod/4))
+    else if (iInt < -((int16_t)(this->pwmPeriod/8)))
     {
-        iOut = -(this->pwmPeriod/4);
+        iInt = -((int16_t)(this->pwmPeriod/8));
     }
 	
 	
@@ -744,7 +744,7 @@ void BldcControl::setCurrentRef(float current)
                                                   &commutationTableCCW;
 
     /* set raw value of current reference */
-    this->currentRef = (int16_t)((current/ ADC_VOLT_IN_AMPS) *
+    this->currentRef = (int16_t)((abs(current)/ ADC_VOLT_IN_AMPS) *
                                  (ADC_MAX_VAL_12BIT / ADC_REF));
     return;
 }
@@ -764,3 +764,5 @@ float BldcControl::getActualSpeed(void)
 
     return actualSpeed;
 }
+
+
