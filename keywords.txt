@@ -1,5 +1,5 @@
 BldcControl	KEYWORD1
-Config	KEYWORD2
+ConfigEYWORD2
 interruptCounter	KEYWORD2
 getActualSpeed	KEYWORD2
 speedRequest	KEYWORD2
