@@ -82,7 +82,7 @@ clock of 2 from system clock */
 #define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
 else {SET_DEBUG_PIN})
 
-/* ADC related definitions Der DAC gibt Spannungen zwischen (1/6) x VADVREF to (5/6) x VADVREF aus. Also zwischen 0.55V – 2.75V. Dazwischen ist er linear. Also 0.55V = 0 und 2.75V = 4095*/
+/* ADC related definitions */
 #define ADC_CLOCK 1000000 /* 1MHz frequency of ADC */
 #define ADC_REF 3.3 /* ADC reference voltage */
 #define ADC_MAX_VAL_12BIT 4095
@@ -682,7 +682,7 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
     int16_t iErr;
     int16_t iOut;
     int16_t iPrp;
-    
+    int16_t iIntLim;
 
     /* calculate error */
     iErr = iRef - iFbk;
@@ -691,31 +691,32 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
     iPrp = iErr >> this->Kprp;
     
     /* integral path */
-   if (iErr > 0)
-	{
-		iInt = iInt + Kint;
-	}
-	else if (iErr < 0)
-	{
-		iInt = iInt - Kint;
-	}
-	/* integral value limiter - anti wind up */
-	if (iInt > (this->pwmPeriod/8))
+    if (iErr > 0)
     {
-        iInt = (this->pwmPeriod/8);
+        iInt = iInt + Kint;
     }
-    else if (iInt < -((int16_t)(this->pwmPeriod/8)))
+    else if (iErr < 0)
     {
-        iInt = -((int16_t)(this->pwmPeriod/8));
+        iInt = iInt - Kint;
     }
-	
-	
+    /* integral value limiter - anti wind up */
+    iIntLim = (int16_t)(this->pwmPeriod>>3);
+    if (iInt > iIntLim)
+    {
+        iInt = iIntLim;
+    }
+    else if (iInt < -(iIntLim))
+    {
+        iInt = -(iIntLim);
+    }
+
+
     iOut =  iPrp + iInt;
 
     /* limit output */
-    if (iOut > (this->pwmPeriod/2))
+    if (iOut > (this->pwmPeriod>>1))
     {
-        iOut = (this->pwmPeriod/2);
+        iOut = (this->pwmPeriod>>1);
     }
     else if (iOut <= 0)
     {
@@ -764,5 +765,3 @@ float BldcControl::getActualSpeed(void)
 
     return actualSpeed;
 }
-
-
