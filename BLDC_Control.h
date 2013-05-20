@@ -85,6 +85,7 @@ class BldcControl
         /* member variables */
         commutationTable    *actualCommutation;
         uint32_t            interruptCounter;
+        uint32_t            prevIntCount;
         uint8_t             motorIndex;
         int8_t              rotDirection;
         int16_t             rotorPosition;
