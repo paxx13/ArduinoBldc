@@ -3,11 +3,11 @@
 #define SPEED_CTRL_FRQ  1000 /* Speed control frequency in Hz */
 
 BldcControl myMotor;
-float       speedReference;     /* reference for speed control */
-float       speedMax    = 9000; /* maximum Speed in rpm */
-float       SpdCtrlKint = 0.01; /* integral gain for speed control */
-float       SpdCtrlKprp = 1;    /* proportinal gain for speed control */
-float       iInt;               /* integrator memory */
+float       speedReference;       /* reference for speed control */
+float       speedMax    = 9000;   /* maximum Speed in rpm */
+float       SpdCtrlKint = 0.0001; /* integral gain for speed control */
+float       SpdCtrlKprp = 0.0005; /* proportinal gain for speed control */
+float       iInt;                 /* integrator memory */
 
 /* interrupt routine for speed control */ 
 void TC6_Handler(){
@@ -72,4 +72,3 @@ void loop() {
   // wait a second so as not to send massive amounts of data
   delay(1000);
 }
-

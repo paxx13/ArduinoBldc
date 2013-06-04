@@ -81,25 +81,23 @@ class BldcControl
         void      configurePMC(void);
         int16_t   CurrentControl(int16_t iFbk, int16_t iRef);
         void      pwmSwitchingCU(uint8_t hallState);
-        uint8_t   pwmSwitchingIU(uint8_t hallState);
+        uint8_t   readBemfState(void);
         /* member variables */
         commutationTable    *actualCommutation;
         uint32_t            interruptCounter;
         uint32_t            prevIntCount;
         uint8_t             motorIndex;
+        uint8_t             prevBemfState;
+        uint16_t            bemfStateDelayCnt;
         int8_t              rotDirection;
         int16_t             rotorPosition;
-        int16_t             phiElec;
-        int16_t             phiElecOld;
         int16_t             deltaPhi;
         uint16_t            pwmPeriod;
         machineProperties   motorProperties;
         uint8_t             previousHallState;
-        int16_t             currentFbk;
         int16_t             Kprp;
         uint16_t            Kint;
         int16_t             iInt;
-        int16_t             test;
         int32_t             IfbkFilt;
 };
 

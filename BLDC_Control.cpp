@@ -9,6 +9,7 @@
 
 #include "Arduino.h"
 #include "BLDC_Control.h"
+#include "BLDC_Peripherals.h"
 
 /*******************************************************************************
             defines
@@ -24,14 +25,14 @@
 
 /* filter constant for current feedback */
 /* value Bandwidth (normalized to 1 Hz) Rise time (samples)
-1 0.1197 3
-2 0.0466 8
-3 0.0217 16
-4 0.0104 34
-5 0.0051 69
-6 0.0026 140
-7 0.0012 280
-8 0.0007 561
+    1       0.1197                      3
+    2       0.0466                      8
+    3       0.0217                      16
+    4       0.0104                      34
+    5       0.0051                      69
+    6       0.0026                      140
+    7       0.0012                      280
+    8       0.0007                      561
 */
 #define FILTER_VALUE 1
 
@@ -76,7 +77,7 @@
 #define HALL3_STATE ((PORT_HALL3 -> PIO_PDSR & (0x1U<<PIN_HALL3)) >> PIN_HALL3)
 
 #define PORT_DEBUG PIOC
-#define PIN_DEBUG 16
+#define PIN_DEBUG  16
 #define SET_DEBUG_PIN (PORT_DEBUG->PIO_SODR |= (0x1U<<PIN_DEBUG))
 #define CLR_DEBUG_PIN (PORT_DEBUG->PIO_CODR |= (0x1U<<PIN_DEBUG))
 #define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
@@ -87,8 +88,8 @@
 #define ADC_REF   3.3     /* ADC reference voltage */
 #define ADC_MAX_VAL_12BIT 4095
 
-#define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V =
-/* 9.6 amps */
+#define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V = */
+                        /* 9.6 amps */
 #define ADC_VOLT_IN_AMPS 12 /* transfer gain of current sensor */
                             /* (2.5 Volts = 30 Amps) */
 #define ADC_CUR_OFFSET 3102 /* 0 amps = 2.5 Volts in current sensor */
@@ -173,7 +174,7 @@ void HANDLER_FOR_TIMER2(void) {
 /*------------------------------------------------------------------------------
 Name:           configurePMC
 parameters:     -
-descritpion:    initializes the Power Management controller
+description:    initializes the Power Management controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePMC(void)
 {
@@ -193,7 +194,7 @@ parameters:     tc - timer counter
                 channel - timer channel
                 irq - isr request
                 frequency - frequency of inetrrupts
-descritpion:    initializes timer for periodic interrupt generation
+description:    initializes timer for periodic interrupt generation
 ------------------------------------------------------------------------------*/
 void BldcControl::configureTimerInterrupt(Tc *tc,
                                           uint32_t channel,
@@ -219,10 +220,22 @@ void BldcControl::configureTimerInterrupt(Tc *tc,
 /*------------------------------------------------------------------------------
 Name:           configurePIOC
 parameters:     -
-descritpion:    initializes the PIO controller
+description:    initializes the PIO controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePIOC(void)
 {
+    /* general config just for first instance */
+    if (this->motorIndex == 0)
+    {
+        /* setup debug Pin */
+        PORT_DEBUG -> PIO_PUDR |= (1U<<PIN_DEBUG); /* no pull up */
+        PORT_DEBUG -> PIO_PER  |= (1U<<PIN_DEBUG); /* manual port control */
+        PORT_DEBUG -> PIO_OER  |= (1U<<PIN_DEBUG); /* enable output */
+        PORT_DEBUG -> PIO_ODSR |= (1U<<PIN_DEBUG); /* drive 0 */
+        PORT_DEBUG -> PIO_IFDR |= (1U<<PIN_DEBUG); /* disable interrupt */
+        PORT_DEBUG -> PIO_MDDR |= (1U<<PIN_DEBUG); /* no multi drive on line */
+    }
+
     /* set pio registers to enable PWM at desired PINs (PC2 to PC7) */
     PIOC -> PIO_ABSR |= PIN_PWM_SETTING; /* enables Peripherial B */
     PIOC -> PIO_PDR  |= PIN_PWM_SETTING; /* disable manual port control */
@@ -250,20 +263,12 @@ void BldcControl::configurePIOC(void)
     PORT_HALL3 -> PIO_ODSR |= (1U<<PIN_HALL3); /* drive 0 */
     PORT_HALL3 -> PIO_IFDR |= (1U<<PIN_HALL3); /* disable interrupt */
     PORT_HALL3 -> PIO_MDDR |= (1U<<PIN_HALL3); /* disable multi drive on line */
-    
-    /* setup debug Pin */
-    PORT_DEBUG -> PIO_PUDR |= (1U<<PIN_DEBUG); /* disable pull up resistors */
-    PORT_DEBUG -> PIO_PER  |= (1U<<PIN_DEBUG); /* enable manual port control */
-    PORT_DEBUG -> PIO_OER  |= (1U<<PIN_DEBUG); /* enable output */
-    PORT_DEBUG -> PIO_ODSR |= (1U<<PIN_DEBUG); /* drive 0 */
-    PORT_DEBUG -> PIO_IFDR |= (1U<<PIN_DEBUG); /* disable interrupt */
-    PORT_DEBUG -> PIO_MDDR |= (1U<<PIN_DEBUG); /* disable multi drive on line */
 }
 
 /*------------------------------------------------------------------------------
 Name:           configureADC
 parameters:     -
-descritpion:    initializes the ADC controller
+description:    initializes the ADC controller
                 - no DMA transfers
                 - no startup delay
                 - 12 bit resolution
@@ -273,42 +278,46 @@ void BldcControl::configureADC(void)
 {
     uint32_t prescaler;
 
-    /* Reset the controller. */
-    ADC->ADC_CR = ADC_CR_SWRST;
-    
-    /* Reset Mode Register. */
-    ADC->ADC_MR = 0;
+    /* general config just for first instance */
+    if (this->motorIndex == 0)
+    {
+        /* Reset the controller. */
+        ADC->ADC_CR = ADC_CR_SWRST;
+        
+        /* Reset Mode Register. */
+        ADC->ADC_MR = 0;
 
-    /* Reset PDC transfer. */
-    ADC->ADC_PTCR = (ADC_PTCR_RXTDIS | ADC_PTCR_TXTDIS);
-    ADC->ADC_RCR = 0;
-    ADC->ADC_RNCR = 0;
-    
-    /* set clock prescaler */
-    prescaler = MCK_CLOCK_42MHZ / (2 * ADC_CLOCK) - 1;
-    ADC->ADC_MR |= ADC_MR_PRESCAL(prescaler) |
-                   ADC_MR_STARTUP_SUT0; /* no startup delay */
+        /* Reset PDC transfer. */
+        ADC->ADC_PTCR = (ADC_PTCR_RXTDIS | ADC_PTCR_TXTDIS);
+        ADC->ADC_RCR = 0;
+        ADC->ADC_RNCR = 0;
+        
+        /* set clock prescaler */
+        prescaler = MCK_CLOCK_42MHZ / (2 * ADC_CLOCK) - 1;
+        ADC->ADC_MR |= ADC_MR_PRESCAL(prescaler) |
+                       ADC_MR_STARTUP_SUT0; /* no startup delay */
 
 
-    adc_configure_timing(ADC, 0, ADC_SETTLING_TIME_3, 1);
-    
-    /* set 12 bit resolution */
-    ADC->ADC_MR |= ADC_MR_LOWRES_BITS_12;
-    
-    /* enable channels */
-    ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA | BIT_ADC_CH_CUR_PHB |
-                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
-                     BIT_ADC_CH_VOLT_PHC;
+        adc_configure_timing(ADC, 0, ADC_SETTLING_TIME_3, 1);
+        
+        /* set 12 bit resolution */
+        ADC->ADC_MR |= ADC_MR_LOWRES_BITS_12;
+        
+        /* enable channels */
+        ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA | BIT_ADC_CH_CUR_PHB |
+                         BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
+                         BIT_ADC_CH_VOLT_PHC;
 
-    /* set ADC trigger */
-    ADC->ADC_MR |= ADC_MR_TRGEN_EN | /* enable trigger */
-                   ADC_MR_TRGSEL_ADC_TRIG4; /* trigegred by PWM event line 0 */
-}
+        /* set ADC trigger */
+        ADC->ADC_MR |= ADC_MR_TRGEN_EN | /* enable trigger */
+                       ADC_MR_TRGSEL_ADC_TRIG4; /* trigegred by PWM event line 0 */
+    }
+                       }
 
 /*------------------------------------------------------------------------------
 Name:           configurePWMC
 parameters:     -
-descritpion:    initializes the PWM controller
+description:    initializes the PWM controller
 ------------------------------------------------------------------------------*/
 void BldcControl::configurePWMC(void)
 {
@@ -401,7 +410,7 @@ parameters:     hallState - states of hall sensors bit coded
                 bit 1 = Hall Sensor 1
                 bit 2 = Hall Sensor 2
                 bit 3 = Hall Sensor 3
-descritpion:    sets PWM registers for unipolar complementary switching
+description:    sets PWM registers for unipolar complementary switching
 ------------------------------------------------------------------------------*/
 void BldcControl::pwmSwitchingCU(uint8_t hallState)
 {
@@ -444,6 +453,74 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     return;
 }
 
+/*------------------------------------------------------------------------------
+Name:           readBemfState
+parameters:     - 
+description:    returns the state of the BEMF for phase U, V and W. the return
+                value is coded:
+                bit0: phase U
+                bit1: phase V
+                bit2: phase W
+                The output is delayed by half the last commutation cycle time
+                (represents 30 degrees)
+------------------------------------------------------------------------------*/
+uint8_t BldcControl::readBemfState(void)
+{
+    uint16_t halfDcLinkVolt;
+    uint8_t  bemfState = 0;
+    uint8_t  retVal;
+
+    /* get back EMF of each phase */
+    if (ADC_CH_VOLT_PHU_RESULT >= halfDcLinkVolt)
+    {
+        bemfState |= 0x01;
+    }
+    else
+    {
+        bemfState &= ~0x01;
+    }
+
+    if (ADC_CH_VOLT_PHV_RESULT >= halfDcLinkVolt)
+    {
+        bemfState |= 0x02;
+    }
+    else
+    {
+        bemfState &= ~0x02;
+    }
+
+    if (ADC_CH_VOLT_PHW_RESULT >= halfDcLinkVolt)
+    {
+        bemfState |= 0x04;
+    }
+    else
+    {
+        bemfState &= ~0x04;
+    }
+    
+    /* check if state changed*/
+    if (this->prevBemfState != bemfState)
+    {
+        this->bemfStateDelayCnt = this->prevIntCount>>1; 
+    }
+    else 
+    {
+        this->bemfStateDelayCnt--;
+    }
+    
+    if (this->bemfStateDelayCnt == 0)
+    {
+        retVal = bemfState;
+        this->prevBemfState = bemfState;
+    }
+    else
+    {
+        retVal = this->prevBemfState;
+    }
+
+    return retVal;
+}
+
 
 /*******************************************************************************
             public methods
@@ -451,7 +528,7 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
 /*------------------------------------------------------------------------------
 Name:           BldcControl
 parameters:     -
-descritpion:    constructor
+description:    constructor
 ------------------------------------------------------------------------------*/
 BldcControl::BldcControl(void)
 {
@@ -465,7 +542,7 @@ BldcControl::BldcControl(void)
 /*------------------------------------------------------------------------------
 Name:           Config
 parameters:     -
-descritpion:    initializes motor controler
+description:    initializes motor controler
 ------------------------------------------------------------------------------*/
 void BldcControl::Config(void)
 {
@@ -502,9 +579,9 @@ void BldcControl::Config(void)
 
     /* set motor properties */
     this->actualCommutation = &commutationTableCW;
-    motorProperties.polePairs = 4;
-    Kprp = 2;
-    Kint = 1;
+    this->motorProperties.polePairs = 4;
+    this->Kprp = 2;
+    this->Kint = 1;
     
     return;
 }
@@ -512,19 +589,26 @@ void BldcControl::Config(void)
 /*------------------------------------------------------------------------------
 Name:           Controller
 parameters:     -
-descritpion:    inner loop control, complentary unipolar PWM
+description:    inner loop control. 
+                - Measures commutation by reading BEMF/Hall sensors. 
+                - calculates motor current from phase currents
+                - runs the current regulator to control the duty cycle of PWM
+                - sets the block commutation accordingly
 ------------------------------------------------------------------------------*/
 void BldcControl::CommutationControl(void)
 {
-    uint8_t  hallState;
-    uint16_t tmp_per = pwmPeriod/2;
+    uint8_t  hallState, bemfState;
+    uint16_t tmp_per = this->pwmPeriod/2;
     int16_t  tmp_dc;
     int16_t  Iu, Iv, Iw;
     int16_t  Ifilt;
+    int16_t  currentFbk;
 
 SET_DEBUG_PIN;
     this->interruptCounter++;
 
+    /* read BEMF */
+    bemfState = readBemfState();
     /* read hall sensors */
     hallState = (uint8_t)((HALL1_STATE | (HALL2_STATE<<1) | (HALL3_STATE<<2))&
                 0b111U);
@@ -536,26 +620,27 @@ SET_DEBUG_PIN;
     currentFbk = (abs(Iu) + abs(Iv) + abs(Iw)) / 2;
 
     /* filter measured current */
-    IfbkFilt += (currentFbk- (IfbkFilt >> FILTER_VALUE));
-    Ifilt = IfbkFilt >> FILTER_VALUE;
+    this->IfbkFilt += (currentFbk- (this->IfbkFilt >> FILTER_VALUE));
+    Ifilt = this->IfbkFilt >> FILTER_VALUE;
 
     /* run current control */
     tmp_dc = CurrentControl(Ifilt, currentRef);
     debug = hallState;
 
     /* change commutation if hall state changed */
-    if (hallState != previousHallState)
+    if (hallState != this->previousHallState)
     {
         /* set outputs according to the commutation cycles */
         pwmSwitchingCU(hallState);
         
         /* save current hall state */
-        previousHallState = hallState;
+        this->previousHallState = hallState;
         
         /* calculate rotor position */
-        deltaPhi = (this->rotDirection == 1)?+60:-60;
-        rotorPosition += (deltaPhi / motorProperties.polePairs);
-        rotorPosition = rotorPosition%360;
+        this->deltaPhi = (this->rotDirection == 1)?+60:-60;
+        this->rotorPosition += (this->deltaPhi / 
+                                this->motorProperties.polePairs);
+        this->rotorPosition = this->rotorPosition%360;
         
         /* calculate speed */
         this->prevIntCount = this->interruptCounter;
@@ -582,15 +667,16 @@ SET_DEBUG_PIN;
 
     /* debug output */
     analogWriteResolution(12);
-    analogWrite(66,tmp_dc); /* DAC0 */
-    analogWrite(67,Ifilt); /* DAC1 */
+    analogWrite(66,(bemfState&0x1)*4095); /* DAC0 */
+    analogWrite(67,(hallState&0x1)*4095); /* DAC1 */
 CLR_DEBUG_PIN;
 }
 
 /*------------------------------------------------------------------------------
 Name:           CurrentControl
-parameters:     -
-descritpion:    PI controller to control the DC bus current
+parameters:     iFbk - Current Feedback (raw value)
+                iRef - Current Reference (raw value)
+description:    PI controller to control the DC bus current
 ------------------------------------------------------------------------------*/
 int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 {
@@ -645,7 +731,7 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 /*------------------------------------------------------------------------------
 Name:           setCurrentRef
 parameters:     current - motor current reference in amps
-descritpion:    sets the raw value of the current reference for inner loop
+description:    sets the raw value of the current reference for inner loop
                 control. the input is limited to the maximum allowed current
 ------------------------------------------------------------------------------*/
 void BldcControl::setCurrentRef(float current)
@@ -668,15 +754,15 @@ void BldcControl::setCurrentRef(float current)
 /*------------------------------------------------------------------------------
 Name:           getActualSpeed
 parameters:     -
-descritpion:    returns the actual speed of the machine in rpm
+description:    returns the actual speed of the machine in rpm
 ------------------------------------------------------------------------------*/
 float BldcControl::getActualSpeed(void)
 {
     float actualSpeed;
 
     actualSpeed = (float)(CTRL_FRQ / this->prevIntCount) *
-               ((((float)(deltaPhi) / this->motorProperties.polePairs ))/360) *
-                  (float)SEC_PER_MIN;
+               ((((float)(this->deltaPhi) / this->motorProperties.polePairs ))/
+                         360) * (float)SEC_PER_MIN;
 
     return actualSpeed;
 }
