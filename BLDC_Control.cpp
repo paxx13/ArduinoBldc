@@ -14,6 +14,7 @@
 /*******************************************************************************
             defines
 *******************************************************************************/
+#define POWER_SHIELD_V2
 #define DEAD_TIME       0.0000005/* 500 ns dead time */
 #define SYS_CLOCK_84MHZ 84000000 /* system main clock is assumed to be 84MHz */
 #define MCK_CLOCK_42MHZ 42000000 /* arduino has prescaler for main peripheral
@@ -88,11 +89,27 @@
 #define ADC_REF   3.3     /* ADC reference voltage */
 #define ADC_MAX_VAL_12BIT 4095
 
-#define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V = */
-                        /* 9.6 amps */
-#define ADC_VOLT_IN_AMPS 12 /* transfer gain of current sensor */
-                            /* (2.5 Volts = 30 Amps) */
-#define ADC_CUR_OFFSET 3102 /* 0 amps = 2.5 Volts in current sensor */
+#if defined(POWER_SHIELD_V1)
+    #define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V = */
+                            /* 9.6 amps */
+    #define ADC_VOLT_IN_AMPS 12 /* transfer gain of current sensor */
+                                /* (2.5 Volts = 30 Amps) */
+    #define ADC_CUR_OFFSET 3102 /* 0 amps = 2.5 Volts in current sensor */
+    #define ADC_VOLT_DEVIDER    40 /* voltage divider for phase voltage */
+                                   /* measurement */
+#elif defined(POWER_SHIELD_V2) 
+    #define ADC_MAX_CUR 25 /* max value that can be mesured is 3.3V = */
+                           /* 25 amps */
+    #define ADC_VOLT_IN_AMPS 15 /* transfer gain of current sensor */
+                                /* (1.65 Volts = 25 Amps) */
+    #define ADC_CUR_OFFSET 2048 /* 0 amps = 1.65 Volts in current sensor */
+    #define ADC_VOLT_DEVIDER    40 /* voltage divider for phase voltage */
+                                   /* measurement */
+#else
+    #error "define version of power shield"
+#endif
+
+
 
 #define ADC_CH_CUR_PHA  7 /* AD7 */
 #define ADC_CH_CUR_PHB  6 /* AD6 */
@@ -165,6 +182,13 @@ void HANDLER_FOR_TIMER2(void) {
     /* clear interrupt */
     TC_FOR_TIMER2->TC_CHANNEL[CHANNEL_FOR_TIMER2].TC_SR;
     motors[1]->CommutationControl();
+}
+#endif
+
+#if defined (useAdcInterrupt)
+void ADC_Handler(void)
+{
+    motors[0]->CommutationControl();
 }
 #endif
 
@@ -293,7 +317,7 @@ void BldcControl::configureADC(void)
         ADC->ADC_RNCR = 0;
         
         /* set clock prescaler */
-        prescaler = MCK_CLOCK_42MHZ / (2 * ADC_CLOCK) - 1;
+        prescaler = MCK_CLOCK_42MHZ / (8 * ADC_CLOCK) - 1;
         ADC->ADC_MR |= ADC_MR_PRESCAL(prescaler) |
                        ADC_MR_STARTUP_SUT0; /* no startup delay */
 
@@ -302,17 +326,18 @@ void BldcControl::configureADC(void)
         
         /* set 12 bit resolution */
         ADC->ADC_MR |= ADC_MR_LOWRES_BITS_12;
-        
-        /* enable channels */
-        ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA | BIT_ADC_CH_CUR_PHB |
-                         BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
-                         BIT_ADC_CH_VOLT_PHC;
 
         /* set ADC trigger */
         ADC->ADC_MR |= ADC_MR_TRGEN_EN | /* enable trigger */
-                       ADC_MR_TRGSEL_ADC_TRIG4; /* trigegred by PWM event line 0 */
+                       ADC_MR_TRGSEL_ADC_TRIG4; /*PWM event line 0 trrigger */
     }
-                       }
+
+#if defined (useAdcInterrupt)
+    /* ADC enable interrupts */
+    ADC->ADC_IER |= 0x80;//ADC_CH_CUR_PHA; /* interrupt on highest channel number */
+    NVIC_EnableIRQ(ADC_IRQn);
+#endif
+}
 
 /*------------------------------------------------------------------------------
 Name:           configurePWMC
@@ -398,10 +423,6 @@ void BldcControl::configurePWMC(void)
     PWM->PWM_CMP[PWM_CHANNEL_PHU].PWM_CMPV = pwmPeriod/2; /* set trigger */
     PWM->PWM_ELMR[0] |= PWM_ELMR_CSEL0; /* enable event line 0 */
 
-    /* enable all 3 channels */
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHU);
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHW);
 }
 
 /*------------------------------------------------------------------------------
@@ -466,7 +487,7 @@ description:    returns the state of the BEMF for phase U, V and W. the return
 ------------------------------------------------------------------------------*/
 uint8_t BldcControl::readBemfState(void)
 {
-    uint16_t halfDcLinkVolt;
+    uint16_t halfDcLinkVolt = this->dcLinkVoltage>>1;
     uint8_t  bemfState = 0;
     uint8_t  retVal;
 
@@ -590,6 +611,7 @@ void BldcControl::Config(void)
 Name:           Controller
 parameters:     -
 description:    inner loop control. 
+                - measures DC Link voltage
                 - Measures commutation by reading BEMF/Hall sensors. 
                 - calculates motor current from phase currents
                 - runs the current regulator to control the duty cycle of PWM
@@ -604,9 +626,13 @@ void BldcControl::CommutationControl(void)
     int16_t  Ifilt;
     int16_t  currentFbk;
 
+    debug++;
 SET_DEBUG_PIN;
     this->interruptCounter++;
 
+    /* measure DC Link Voltage */
+    this->dcLinkVoltage = (ADC_CH_VOLT_PHU_RESULT + ADC_CH_VOLT_PHV_RESULT +
+                           ADC_CH_VOLT_PHW_RESULT) / 3;
     /* read BEMF */
     bemfState = readBemfState();
     /* read hall sensors */
@@ -625,7 +651,6 @@ SET_DEBUG_PIN;
 
     /* run current control */
     tmp_dc = CurrentControl(Ifilt, currentRef);
-    debug = hallState;
 
     /* change commutation if hall state changed */
     if (hallState != this->previousHallState)
@@ -729,6 +754,42 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
 }
 
 /*------------------------------------------------------------------------------
+Name:           start
+parameters:     -
+description:    starts the machine control by activating ADC and PWM
+------------------------------------------------------------------------------*/
+void BldcControl::start(void)
+{
+    /* enable ADC channels */
+    ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA  | BIT_ADC_CH_CUR_PHB |
+                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
+                     BIT_ADC_CH_VOLT_PHC;
+
+    /* enable all the PWM channels for the 3 phases*/
+    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHU);
+    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHV);
+    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHW);
+}
+
+/*------------------------------------------------------------------------------
+Name:           stop
+parameters:     -
+description:    stops the machine control by deactivating ADC and PWM
+------------------------------------------------------------------------------*/
+void BldcControl::stop(void)
+{
+    /* enable all the PWM channels for the 3 phases*/
+    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHU);
+    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHV);
+    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHW);
+
+    /* enable ADC channels */
+    ADC->ADC_CHDR |= BIT_ADC_CH_CUR_PHA  | BIT_ADC_CH_CUR_PHB |
+                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
+                     BIT_ADC_CH_VOLT_PHC;
+}
+
+/*------------------------------------------------------------------------------
 Name:           setCurrentRef
 parameters:     current - motor current reference in amps
 description:    sets the raw value of the current reference for inner loop
@@ -765,4 +826,19 @@ float BldcControl::getActualSpeed(void)
                          360) * (float)SEC_PER_MIN;
 
     return actualSpeed;
+}
+
+/*------------------------------------------------------------------------------
+Name:           getDcLinkVoltage
+parameters:     -
+description:    returns the actual DC link voltage in Volts
+------------------------------------------------------------------------------*/
+float BldcControl::getDcLinkVoltage(void)
+{
+    float dcVoltage;
+
+    dcVoltage = (ADC_REF / ADC_MAX_VAL_12BIT)*((float)(this->dcLinkVoltage)) 
+                * ADC_VOLT_DEVIDER;
+
+    return dcVoltage;
 }

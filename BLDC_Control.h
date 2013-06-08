@@ -12,7 +12,9 @@
 /*******************************************************************************
            defines
 *******************************************************************************/
-#define useTimer1
+//#define useTimer1
+#define useAdcInterrupt
+
 /*
   TC0, chan 0 => TC0_Handler
   TC0, chan 1 => TC1_Handler
@@ -59,18 +61,21 @@ class BldcControl
     public:
         /* member methods */
         BldcControl(void);
-        void     Config(void);
-        void     CommutationControl(void);
-        float    getActualSpeed(void);
-        void     setCurrentRef(float current);
+        void    Config(void);
+        void    start(void);
+        void    stop(void);
+        float   getActualSpeed(void);
+        float   getDcLinkVoltage(void);
+        void    setCurrentRef(float current);
+        void    CommutationControl(void);
 
         /* member variables */
-        float    speedRequest;
-        int32_t  debug;
-        int16_t  currentRef;
+        float   speedRequest;
+        int32_t debug;
+        int16_t currentRef;
     /*--------------------------------------------------------------------*/    
     private:  
-        /* member methods */    
+        /* member methods */
         void      configureTimerInterrupt(Tc         *tc, 
                                           uint32_t   channel, 
                                           IRQn_Type  irq, 
@@ -90,6 +95,7 @@ class BldcControl
         uint8_t             prevBemfState;
         uint16_t            bemfStateDelayCnt;
         int8_t              rotDirection;
+        uint16_t            dcLinkVoltage;
         int16_t             rotorPosition;
         int16_t             deltaPhi;
         uint16_t            pwmPeriod;
