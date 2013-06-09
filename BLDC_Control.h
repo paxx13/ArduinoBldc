@@ -8,6 +8,7 @@
 #define BLDC_CONTROL_H
 
 #include "Arduino.h"
+#include "BLDC_Peripherals.h"
 
 /*******************************************************************************
            defines
@@ -88,6 +89,7 @@ class BldcControl
         void      pwmSwitchingCU(uint8_t hallState);
         uint8_t   readBemfState(void);
         /* member variables */
+        peripheralConfig    *periphery;
         commutationTable    *actualCommutation;
         uint32_t            interruptCounter;
         uint32_t            prevIntCount;

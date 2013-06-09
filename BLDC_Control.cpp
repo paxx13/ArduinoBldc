@@ -38,32 +38,6 @@
 #define FILTER_VALUE 1
 
 
-/* PWM related definitions */
-#define PWM_SW_FRQ 30000 /* 30kHz switching frequency */
-#define PWM_PERIOD (1 / PWM_SW_FRQ) /* PWM period */
-
-#define PWM_CHANNEL_PHU 0
-#define PWM_CHANNEL_PHV 1
-#define PWM_CHANNEL_PHW 2
-
-#define PWM_CH_PHU_BIT (0x1U<<PWM_CHANNEL_PHU)
-#define PWM_CH_PHV_BIT (0x1U<<PWM_CHANNEL_PHV)
-#define PWM_CH_PHW_BIT (0x1U<<PWM_CHANNEL_PHW)
-
-#define PORT_PWM PIOC
-#define PIN_PWM_UH 2 /* Port C */
-#define PIN_PWM_UL 3 /* Port C */
-#define PIN_PWM_VH 4 /* Port C */
-#define PIN_PWM_VL 5 /* Port C */
-#define PIN_PWM_WH 6 /* Port C */
-#define PIN_PWM_WL 7 /* Port C */
-#define PIN_PWM_SETTING ((0x1U<<PIN_PWM_UH) | \
-                         (0x1U<<PIN_PWM_UL) | \
-                         (0x1U<<PIN_PWM_VH) | \
-                         (0x1U<<PIN_PWM_VL) | \
-                         (0x1U<<PIN_PWM_WH) | \
-                         (0x1U<<PIN_PWM_WL))
-                         
 /* PIO related definitions */
 #define PORT_HALL1 PIOA
 #define PORT_HALL2 PIOD
@@ -84,58 +58,7 @@
 #define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
                        else {SET_DEBUG_PIN})
 
-/* ADC related definitions */
-#define ADC_CLOCK 1000000 /* 1MHz frequency of ADC */
-#define ADC_REF   3.3     /* ADC reference voltage */
-#define ADC_MAX_VAL_12BIT 4095
 
-#if defined(POWER_SHIELD_V1)
-    #define ADC_MAX_CUR 9.6 /* max value that can be mesured is 3.3V = */
-                            /* 9.6 amps */
-    #define ADC_VOLT_IN_AMPS 12 /* transfer gain of current sensor */
-                                /* (2.5 Volts = 30 Amps) */
-    #define ADC_CUR_OFFSET 3102 /* 0 amps = 2.5 Volts in current sensor */
-    #define ADC_VOLT_DEVIDER    40 /* voltage divider for phase voltage */
-                                   /* measurement */
-#elif defined(POWER_SHIELD_V2) 
-    #define ADC_MAX_CUR 25 /* max value that can be mesured is 3.3V = */
-                           /* 25 amps */
-    #define ADC_VOLT_IN_AMPS 15 /* transfer gain of current sensor */
-                                /* (1.65 Volts = 25 Amps) */
-    #define ADC_CUR_OFFSET 2048 /* 0 amps = 1.65 Volts in current sensor */
-    #define ADC_VOLT_DEVIDER    40 /* voltage divider for phase voltage */
-                                   /* measurement */
-#else
-    #error "define version of power shield"
-#endif
-
-
-
-#define ADC_CH_CUR_PHA  7 /* AD7 */
-#define ADC_CH_CUR_PHB  6 /* AD6 */
-#define ADC_CH_VOLT_PHA 5 /* AD5 */
-#define ADC_CH_VOLT_PHB 4 /* AD4 */
-#define ADC_CH_VOLT_PHC 3 /* AD3 */
-
-#define BIT_ADC_CH_CUR_PHA  (0x1U<<ADC_CH_CUR_PHA)
-#define BIT_ADC_CH_CUR_PHB  (0x1U<<ADC_CH_CUR_PHB)
-#define BIT_ADC_CH_VOLT_PHA (0x1U<<ADC_CH_VOLT_PHA)
-#define BIT_ADC_CH_VOLT_PHB (0x1U<<ADC_CH_VOLT_PHB)
-#define BIT_ADC_CH_VOLT_PHC (0x1U<<ADC_CH_VOLT_PHC)
-
-#define ADC_CH_CUR_PHU_RESULT  (ADC->ADC_CDR[ADC_CH_CUR_PHA])
-#define ADC_CH_CUR_PHV_RESULT  (ADC->ADC_CDR[ADC_CH_CUR_PHB])
-#define ADC_CH_VOLT_PHU_RESULT (ADC->ADC_CDR[ADC_CH_VOLT_PHA])
-#define ADC_CH_VOLT_PHV_RESULT (ADC->ADC_CDR[ADC_CH_VOLT_PHB])
-#define ADC_CH_VOLT_PHW_RESULT (ADC->ADC_CDR[ADC_CH_VOLT_PHC])
-
-#define PORT_ADC PIOA
-#define PIN_ADC_CH0 16 /* AD7 -> ch0 on arduino due */
-#define PIN_ADC_CH1 24 /* AD6 -> ch1 on arduino due */
-#define PIN_ADC_CH2 23 /* AD5 -> ch2 on arduino due */
-#define PIN_ADC_CH3 22 /* AD4 -> ch3 on arduino due */
-#define PIN_ADC_CH4 6  /* AD3 -> ch4 on arduino due */
-#define PIN_ADC_CH5 4  /* AD2 -> ch5 on arduino due */
 
 /*******************************************************************************
             static variables
@@ -261,10 +184,10 @@ void BldcControl::configurePIOC(void)
     }
 
     /* set pio registers to enable PWM at desired PINs (PC2 to PC7) */
-    PIOC -> PIO_ABSR |= PIN_PWM_SETTING; /* enables Peripherial B */
-    PIOC -> PIO_PDR  |= PIN_PWM_SETTING; /* disable manual port control */
-    PIOC -> PIO_MDDR |= PIN_PWM_SETTING; /* disable multi drive on line */
-    PIOC -> PIO_PUER |= PIN_PWM_SETTING; /* enable pull up resistors */
+    PIOC -> PIO_ABSR |= this->periphery->Pwm.pwmPio; /* enables Peripherial B */
+    PIOC -> PIO_PDR  |= this->periphery->Pwm.pwmPio; /* disable manual port control */
+    PIOC -> PIO_MDDR |= this->periphery->Pwm.pwmPio; /* disable multi drive on line */
+    PIOC -> PIO_PUER |= this->periphery->Pwm.pwmPio; /* enable pull up resistors */
 
     /* set registers for hall inputs */
     PORT_HALL1 -> PIO_PUER |= (1U<<PIN_HALL1); /* enable pull up resistors */
@@ -352,20 +275,20 @@ void BldcControl::configurePWMC(void)
     uint16_t duty = 0;
     uint16_t deadTime;
     
-    pwmPeriod = MCK_CLOCK_42MHZ / PWM_SW_FRQ;
+    pwmPeriod = MCK_CLOCK_42MHZ / this->periphery->Pwm.pwmSwFrq;
     
-    deadTime = (uint16_t)(pwmPeriod * (DEAD_TIME * PWM_SW_FRQ * 2));
+    deadTime = (uint16_t)(pwmPeriod * (DEAD_TIME * this->periphery->Pwm.pwmSwFrq * 2));
 
     /* disable all 3 channels */
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHU);
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHW);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChU);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChV);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChW);
 
     PWMC_ConfigureClocks(clka, clkb, mck);
 
     /* initialize all 3 channels */
     PWMC_ConfigureChannelExt(PWM,
-                          PWM_CHANNEL_PHU, /* channel ID */
+                          this->periphery->Pwm.pwmChU, /* channel ID */
                           PWM_CMR_CPRE_MCK, /* use main clock */
                           PWM_CMR_CALG, /* center alligned */
                           0, /* polarity low level */
@@ -374,7 +297,7 @@ void BldcControl::configurePWMC(void)
                           0,  /* no inversion of dead time H */
                           0); /* no inversion of dead time L */
     PWMC_ConfigureChannelExt(PWM,
-                          PWM_CHANNEL_PHV, /* channel ID */
+                          this->periphery->Pwm.pwmChV, /* channel ID */
                           PWM_CMR_CPRE_MCK,
                           PWM_CMR_CALG, /* center alligned */
                           0, /* polarity low level */
@@ -383,7 +306,7 @@ void BldcControl::configurePWMC(void)
                           0,  /* no inversion of dead time H */
                           0); /* no inversion of dead time L */
     PWMC_ConfigureChannelExt(PWM,
-                          PWM_CHANNEL_PHW, /* channel ID */
+                          this->periphery->Pwm.pwmChW, /* channel ID */
                           PWM_CMR_CPRE_MCK,
                           PWM_CMR_CALG, /* center alligned */
                           0, /* polarity low level */
@@ -399,28 +322,28 @@ void BldcControl::configurePWMC(void)
                               PWM_SCM_PTRCS(0)) ;
 
     /* set periods */
-    PWMC_SetPeriod(PWM, PWM_CHANNEL_PHU, pwmPeriod);
-    PWMC_SetPeriod(PWM, PWM_CHANNEL_PHV, pwmPeriod);
-    PWMC_SetPeriod(PWM, PWM_CHANNEL_PHW, pwmPeriod);
+    PWMC_SetPeriod(PWM, this->periphery->Pwm.pwmChU, pwmPeriod);
+    PWMC_SetPeriod(PWM, this->periphery->Pwm.pwmChV, pwmPeriod);
+    PWMC_SetPeriod(PWM, this->periphery->Pwm.pwmChW, pwmPeriod);
 
     /* set duty cycles */
-    PWMC_SetDutyCycle(PWM, PWM_CHANNEL_PHU, duty);
-    PWMC_SetDutyCycle(PWM, PWM_CHANNEL_PHV, duty);
-    PWMC_SetDutyCycle(PWM, PWM_CHANNEL_PHW, duty);
+    PWMC_SetDutyCycle(PWM, this->periphery->Pwm.pwmChU, duty);
+    PWMC_SetDutyCycle(PWM, this->periphery->Pwm.pwmChV, duty);
+    PWMC_SetDutyCycle(PWM, this->periphery->Pwm.pwmChW, duty);
 
     /* set dead times */
-    PWMC_SetDeadTime(PWM, PWM_CHANNEL_PHU, deadTime, deadTime);
-    PWMC_SetDeadTime(PWM, PWM_CHANNEL_PHV, deadTime, deadTime);
-    PWMC_SetDeadTime(PWM, PWM_CHANNEL_PHW, deadTime, deadTime);
+    PWMC_SetDeadTime(PWM, this->periphery->Pwm.pwmChU, deadTime, deadTime);
+    PWMC_SetDeadTime(PWM, this->periphery->Pwm.pwmChV, deadTime, deadTime);
+    PWMC_SetDeadTime(PWM, this->periphery->Pwm.pwmChW, deadTime, deadTime);
 
     /* set overwrites to 0 */
     PWMC_SetOverrideValue(PWM, 0);
 
     /* set event for ADC trigger */
-    PWM->PWM_CMP[PWM_CHANNEL_PHU].PWM_CMPM |= PWM_CMPM_CEN | /* enable */
+    PWM->PWM_CMP[this->periphery->Pwm.pwmChU].PWM_CMPM |= PWM_CMPM_CEN | /* enable */
                                            PWM_CMPM_CTR(0) | /* each period */
                                            PWM_CMPM_CPR(0);
-    PWM->PWM_CMP[PWM_CHANNEL_PHU].PWM_CMPV = pwmPeriod/2; /* set trigger */
+    PWM->PWM_CMP[this->periphery->Pwm.pwmChU].PWM_CMPV = pwmPeriod/2; /* set trigger */
     PWM->PWM_ELMR[0] |= PWM_ELMR_CSEL0; /* enable event line 0 */
 
 }
@@ -441,31 +364,37 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     /* set phase U freewheeling */
     if ((*(this->actualCommutation))[hallState][0] == 0)
     {
-        setOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
+        setOverwrite |= this->periphery->Pwm.pwmChBitU | 
+                       (this->periphery->Pwm.pwmChBitU<<0x10U);
     }
     else
     {
-        clearOverwrite |= PWM_CH_PHU_BIT | (PWM_CH_PHU_BIT<<0x10U);
+        clearOverwrite |= this->periphery->Pwm.pwmChBitU | 
+                         (this->periphery->Pwm.pwmChBitU<<0x10U);
     }
     
     /* set phase V freewheeling */
     if ((*(this->actualCommutation))[hallState][1] == 0)
     {
-        setOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
+        setOverwrite |= this->periphery->Pwm.pwmChBitV | 
+                       (this->periphery->Pwm.pwmChBitV<<0x10U);
     }
     else
     {
-        clearOverwrite |= PWM_CH_PHV_BIT | (PWM_CH_PHV_BIT<<0x10U);
+        clearOverwrite |= this->periphery->Pwm.pwmChBitV | 
+                         (this->periphery->Pwm.pwmChBitV<<0x10U);
     }
     
     /* set phase W freewheeling */
     if ((*(this->actualCommutation))[hallState][2] == 0)
     {
-        setOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
+        setOverwrite |= this->periphery->Pwm.pwmChBitW | 
+                       (this->periphery->Pwm.pwmChBitW<<0x10U);
     }
     else
     {
-        clearOverwrite |= PWM_CH_PHW_BIT | (PWM_CH_PHW_BIT<<0x10U);
+        clearOverwrite |= this->periphery->Pwm.pwmChBitW | 
+                         (this->periphery->Pwm.pwmChBitW<<0x10U);
     }
 
     PWM->PWM_OSS |= setOverwrite;
@@ -492,7 +421,7 @@ uint8_t BldcControl::readBemfState(void)
     uint8_t  retVal;
 
     /* get back EMF of each phase */
-    if (ADC_CH_VOLT_PHU_RESULT >= halfDcLinkVolt)
+    if (*this->periphery->Adc.adcChVoltUResult >= halfDcLinkVolt)
     {
         bemfState |= 0x01;
     }
@@ -501,7 +430,7 @@ uint8_t BldcControl::readBemfState(void)
         bemfState &= ~0x01;
     }
 
-    if (ADC_CH_VOLT_PHV_RESULT >= halfDcLinkVolt)
+    if (*this->periphery->Adc.adcChVoltVResult >= halfDcLinkVolt)
     {
         bemfState |= 0x02;
     }
@@ -510,7 +439,7 @@ uint8_t BldcControl::readBemfState(void)
         bemfState &= ~0x02;
     }
 
-    if (ADC_CH_VOLT_PHW_RESULT >= halfDcLinkVolt)
+    if (*this->periphery->Adc.adcChVoltWResult >= halfDcLinkVolt)
     {
         bemfState |= 0x04;
     }
@@ -570,6 +499,19 @@ void BldcControl::Config(void)
     /* configure Power Management */
     configurePMC();
 
+    if(this->motorIndex == 0)
+    {
+        periphery = &BldcBoard1;
+    }
+    else if(this->motorIndex == 1)
+    {
+        periphery = &BldcBoard2;
+    }
+    else
+    {
+        /* only two instances allowed */
+    }
+
     if (this->motorIndex < MAX_MOTORS)
     {
         /* setup timer for interrupt generation */
@@ -620,7 +562,7 @@ description:    inner loop control.
 void BldcControl::CommutationControl(void)
 {
     uint8_t  hallState, bemfState;
-    uint16_t tmp_per = this->pwmPeriod/2;
+    uint16_t tmp_per = this->pwmPeriod>>1;
     int16_t  tmp_dc;
     int16_t  Iu, Iv, Iw;
     int16_t  Ifilt;
@@ -631,8 +573,9 @@ SET_DEBUG_PIN;
     this->interruptCounter++;
 
     /* measure DC Link Voltage */
-    this->dcLinkVoltage = (ADC_CH_VOLT_PHU_RESULT + ADC_CH_VOLT_PHV_RESULT +
-                           ADC_CH_VOLT_PHW_RESULT) / 3;
+    this->dcLinkVoltage = (*this->periphery->Adc.adcChVoltUResult + 
+                           *this->periphery->Adc.adcChVoltVResult +
+                           *this->periphery->Adc.adcChVoltWResult) / 3;
     /* read BEMF */
     bemfState = readBemfState();
     /* read hall sensors */
@@ -640,8 +583,8 @@ SET_DEBUG_PIN;
                 0b111U);
 
     /* calculate motor current */
-    Iu = (((int16_t)(ADC_CH_CUR_PHU_RESULT)) - ADC_CUR_OFFSET);
-    Iv = (((int16_t)(ADC_CH_CUR_PHV_RESULT)) - ADC_CUR_OFFSET);
+    Iu = (((int16_t)(*this->periphery->Adc.adcChCurUResult)) - ADC_CUR_OFFSET);
+    Iv = (((int16_t)(*this->periphery->Adc.adcChCurVResult)) - ADC_CUR_OFFSET);
     Iw = -Iu - Iv;
     currentFbk = (abs(Iu) + abs(Iv) + abs(Iw)) / 2;
 
@@ -677,13 +620,13 @@ SET_DEBUG_PIN;
     }
 
     /* update duty cycle */
-    PWM->PWM_CH_NUM[PWM_CHANNEL_PHU].PWM_CDTYUPD = (int16_t)tmp_per +
+    PWM->PWM_CH_NUM[this->periphery->Pwm.pwmChU].PWM_CDTYUPD = (int16_t)tmp_per +
                       (((*(this->actualCommutation))[hallState][0]) *
                       (int16_t)tmp_dc);
-    PWM->PWM_CH_NUM[PWM_CHANNEL_PHV].PWM_CDTYUPD = (int16_t)tmp_per +
+    PWM->PWM_CH_NUM[this->periphery->Pwm.pwmChV].PWM_CDTYUPD = (int16_t)tmp_per +
                       (((*(this->actualCommutation))[hallState][1]) *
                       (int16_t)tmp_dc);
-    PWM->PWM_CH_NUM[PWM_CHANNEL_PHW].PWM_CDTYUPD = (int16_t)tmp_per +
+    PWM->PWM_CH_NUM[this->periphery->Pwm.pwmChW].PWM_CDTYUPD = (int16_t)tmp_per +
                       (((*(this->actualCommutation))[hallState][2]) *
                       (int16_t)tmp_dc);
 
@@ -761,14 +704,16 @@ description:    starts the machine control by activating ADC and PWM
 void BldcControl::start(void)
 {
     /* enable ADC channels */
-    ADC->ADC_CHER |= BIT_ADC_CH_CUR_PHA  | BIT_ADC_CH_CUR_PHB |
-                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
-                     BIT_ADC_CH_VOLT_PHC;
+    ADC->ADC_CHER |= this->periphery->Adc.adcChCurUBit |
+                     this->periphery->Adc.adcChCurVBit |
+                     this->periphery->Adc.adcChVoltUBit |
+                     this->periphery->Adc.adcChVoltVBit |
+                     this->periphery->Adc.adcChVoltWBit;
 
     /* enable all the PWM channels for the 3 phases*/
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHU);
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_EnableChannel(PWM, PWM_CHANNEL_PHW);
+    PWMC_EnableChannel(PWM, this->periphery->Pwm.pwmChU);
+    PWMC_EnableChannel(PWM, this->periphery->Pwm.pwmChV);
+    PWMC_EnableChannel(PWM, this->periphery->Pwm.pwmChW);
 }
 
 /*------------------------------------------------------------------------------
@@ -779,14 +724,16 @@ description:    stops the machine control by deactivating ADC and PWM
 void BldcControl::stop(void)
 {
     /* enable all the PWM channels for the 3 phases*/
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHU);
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHV);
-    PWMC_DisableChannel(PWM, PWM_CHANNEL_PHW);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChU);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChV);
+    PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChW);
 
     /* enable ADC channels */
-    ADC->ADC_CHDR |= BIT_ADC_CH_CUR_PHA  | BIT_ADC_CH_CUR_PHB |
-                     BIT_ADC_CH_VOLT_PHA | BIT_ADC_CH_VOLT_PHB |
-                     BIT_ADC_CH_VOLT_PHC;
+    ADC->ADC_CHDR |= this->periphery->Adc.adcChCurUBit |
+                     this->periphery->Adc.adcChCurVBit |
+                     this->periphery->Adc.adcChVoltUBit |
+                     this->periphery->Adc.adcChVoltVBit |
+                     this->periphery->Adc.adcChVoltWBit;
 }
 
 /*------------------------------------------------------------------------------
