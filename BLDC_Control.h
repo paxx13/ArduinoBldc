@@ -10,6 +10,7 @@
 #include "Arduino.h"
 #include "BLDC_Peripherals.h"
 
+
 /*******************************************************************************
            defines
 *******************************************************************************/
@@ -42,6 +43,10 @@
 #define HANDLER_FOR_TIMER2  TC4_Handler
 #endif
 
+#define BLDC_ROT_DIR_CW      1 /* clockwise rotation */
+#define BLDC_ROT_DIR_CCW    -1 /* counter clockwise rotation */
+
+
 typedef enum { _timer1, _timer2, _Nbr_16timers } timer16_Sequence_t ;
 typedef int8_t commutationTable[8][3];
 
@@ -70,12 +75,13 @@ class BldcControl
         void    setCurrentRef(float current);
         void    CommutationControl(void);
 
+        uint32_t getTimerVal(void);
         /* member variables */
-        float   speedRequest;
-        int32_t debug;
-        int16_t currentRef;
-    /*--------------------------------------------------------------------*/    
-    private:  
+        float   speedRequest;       /* speed request in RPM */
+        int16_t  debug;              /* debug variable */
+        int16_t  currentRef;         /* current reference */
+    /*--------------------------------------------------------------------*/
+    private:
         /* member methods */
         void      configureTimerInterrupt(Tc         *tc, 
                                           uint32_t   channel, 
@@ -88,25 +94,29 @@ class BldcControl
         int16_t   CurrentControl(int16_t iFbk, int16_t iRef);
         void      pwmSwitchingCU(uint8_t hallState);
         uint8_t   readBemfState(void);
+        
         /* member variables */
         peripheralConfig    *periphery;
         commutationTable    *actualCommutation;
-        uint32_t            interruptCounter;
-        uint32_t            prevIntCount;
-        uint8_t             motorIndex;
-        uint8_t             prevBemfState;
-        uint16_t            bemfStateDelayCnt;
-        int8_t              rotDirection;
-        uint16_t            dcLinkVoltage;
-        int16_t             rotorPosition;
-        int16_t             deltaPhi;
-        uint16_t            pwmPeriod;
-        machineProperties   motorProperties;
-        uint8_t             previousHallState;
-        int16_t             Kprp;
-        uint16_t            Kint;
-        int16_t             iInt;
-        int32_t             IfbkFilt;
+        uint16_t            intCount;           /* interrupt counter */
+        uint16_t            intCountPrev;       /* amount of interrupts between last commutation cycle */
+        uint16_t            intCountFilt;       /* filtered value of intCount */
+        uint32_t            intCountFiltTmp;    /* integrator value of intCount filter */
+        uint8_t             motorIndex;         /* index of BLDC instance */
+        uint8_t             prevBemfState;      /* back EMF state */
+        uint16_t            bemfStateDelayCnt;  /* back EMF delay counter */
+        int8_t              rotDirCmd;          /* rotational direction */
+        uint16_t            dcVoltRaw;          /* raw values of DC link voltage */
+        int16_t             rotorPosition;      /* rotor position in deggree */
+        int16_t             deltaPhi;           /* delta phi in degree */
+        int16_t             phiElecOld;         /* last elec angle in degree */
+        uint16_t            pwmPeriod;          /* PWM perriod in ticks */
+        machineProperties   motorProperties;    /* properties of machine */
+        uint8_t             previousHallState;  /* last Hall state */
+        int16_t             Kprp;               /* prportinal gain of Current Controlelr */
+        uint16_t            Kint;               /* integral gain of Current Controlelr */
+        int16_t             iInt;               /* integrator of current controller */
+        int32_t             iFbkFiltTmp;        /* integrator value of current feedback filter */
 };
 
 #endif /* BLDC_CONTROL_H */

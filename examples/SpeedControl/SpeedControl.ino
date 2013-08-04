@@ -1,35 +1,69 @@
 #include <BLDC_Control.h>
 
-#define SPEED_CTRL_FRQ  1000 /* Speed control frequency in Hz */
+#define SPEED_CTRL_FRQ 500 /* Speed control frequency in Hz */
 
 BldcControl myMotor;
-float       speedReference;       /* reference for speed control */
-float       speedMax    = 9000;   /* maximum Speed in rpm */
-float       SpdCtrlKint = 0.0001; /* integral gain for speed control */
-float       SpdCtrlKprp = 0.0005; /* proportinal gain for speed control */
-float       iInt;                 /* integrator memory */
+String inputString = "";
+//boolean stringComplete = false;
 
-/* interrupt routine for speed control */ 
+float speedReference; /* reference for speed control */
+float speedMax = 9000; /* maximum Speed in rpm */
+float SpdCtrlKint = 0.0005; /* integral gain for speed control */
+float SpdCtrlKprp = 0.0005; /* proportinal gain for speed control */
+float iInt; /* integrator memory */
+float vErr;
+uint16_t controlCnt;
+float speedFilt;
+float ActualSpeed;
+
+
+/* interrupt routine for speed control */
 void TC6_Handler(){
-  float iErr;
-  float iOut;
-  float iPrp;
-  
+
+  float vOut;
+  float vPrp;
+
   /* clear interrupt flag */
   TC_GetStatus(TC2, 0);
 
+  controlCnt++;
+  /* filter commutation period */
+  speedFilt += myMotor.getActualSpeed();
+  if(controlCnt>=10)
+  {
+	  ActualSpeed = speedFilt / controlCnt;
+	  speedFilt = 0;
+	  controlCnt = 0;
+  }
+
   /* calculate error */
-  iErr = speedReference - myMotor.getActualSpeed();
-    
+  vErr = speedReference - ActualSpeed;
+
   /* proportional path */
-  iPrp = iErr * SpdCtrlKprp;
-    
+  vPrp = vErr * SpdCtrlKprp;
+
   /* integral path */
-  iInt += iErr * SpdCtrlKint;
+  if (vErr > 0)
+    {
+        iInt = iInt + SpdCtrlKint;
+    }
+    else if (vErr < 0)
+    {
+        iInt = iInt - SpdCtrlKint;
+    }
+    /* integral value limiter - anti wind up */
+    if (iInt > 500)
+    {
+        iInt = 500;
+    }
+    else if (iInt < - 500)
+    {
+        iInt = -(500);
+    }
 
   /* calculate current setpoint and send to motor instance */
-  iOut = iPrp + iInt;
-  myMotor.setCurrentRef(iOut);
+  vOut = vPrp + iInt;
+  myMotor.setCurrentRef(vOut);
 }
 
 /* timer setup */
@@ -48,11 +82,10 @@ void startTimer(Tc *tc, uint32_t channel, IRQn_Type irq, uint32_t frequency) {
 
 void setup() {
   /* setup motor */
-  myMotor.Config();  
-  
+  myMotor.Config();
+
   /* setup interrupt for speed control */
-  startTimer(TC2, 0, TC6_IRQn, SPEED_CTRL_FRQ); 
-  
+  startTimer(TC2, 0, TC6_IRQn, SPEED_CTRL_FRQ);
   /* setup serial communication */
   Serial.begin(9600);
 }
@@ -60,15 +93,49 @@ void setup() {
 void loop() {
   /* print duty cycle speed */
   Serial.print("\nRequested Speed in rpm:");
-  Serial.println(speedReference);  
+  Serial.println(speedReference,4);
   Serial.print("Actual Speed in rpm:");
   Serial.println(myMotor.getActualSpeed(),4);
-  
-  /* read new speed request */
-  if (Serial.available())
-  {
-    speedReference = Serial.parseFloat();
-  }
+
+    /* read commands from serial port */
+    while (Serial.available()) {
+        // get the new byte:
+        char inChar = (char)Serial.read();
+        // add it to the inputString:
+        inputString += inChar;
+
+        // if the incoming character is a newline, set a flag
+        // so the main loop can do something about it:
+        if (inChar == '\n') {
+            if (inputString.startsWith(String("SetV="))){
+                inputString = inputString.substring(5);
+                char floatVar[7];
+                inputString.toCharArray(floatVar,7);
+                speedReference=atof(floatVar);
+            }
+            if (inputString.startsWith(String("Vprp="))){
+                inputString = inputString.substring(5);
+                char floatVar[7];
+                inputString.toCharArray(floatVar,7);
+                SpdCtrlKprp=atof(floatVar);
+            }
+            if (inputString.startsWith(String("Vint="))){
+                inputString = inputString.substring(5);
+                char floatVar[7];
+
+                inputString.toCharArray(floatVar,7);
+                SpdCtrlKint=atof(floatVar);
+            }
+            if (inputString.startsWith(String("start"))){
+                myMotor.start();
+            }
+            if (inputString.startsWith(String("stop"))){
+                myMotor.stop();
+            }
+            inputString = "";
+        }
+
+    }
   // wait a second so as not to send massive amounts of data
   delay(1000);
 }

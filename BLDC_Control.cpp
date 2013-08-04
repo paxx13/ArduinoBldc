@@ -14,7 +14,6 @@
 /*******************************************************************************
             defines
 *******************************************************************************/
-#define POWER_SHIELD_V2
 #define DEAD_TIME       0.0000005/* 500 ns dead time */
 #define SYS_CLOCK_84MHZ 84000000 /* system main clock is assumed to be 84MHz */
 #define MCK_CLOCK_42MHZ 42000000 /* arduino has prescaler for main peripheral
@@ -36,12 +35,13 @@
     8       0.0007                      561
 */
 #define FILTER_VALUE 1
+#define FILTER_VALUE_INTCNT 3
 
 
 /* PIO related definitions */
-#define PORT_HALL1 PIOA
-#define PORT_HALL2 PIOD
-#define PORT_HALL3 PIOD
+#define PORT_HALL1 PIOA /* Arduino PIN 24 */
+#define PORT_HALL2 PIOD    /* Arduino PIN 26 */
+#define PORT_HALL3 PIOD /* Arduino PIN 28 */
 
 #define PIN_HALL1 15
 #define PIN_HALL2 1
@@ -52,7 +52,7 @@
 #define HALL3_STATE ((PORT_HALL3 -> PIO_PDSR & (0x1U<<PIN_HALL3)) >> PIN_HALL3)
 
 #define PORT_DEBUG PIOC
-#define PIN_DEBUG  16
+#define PIN_DEBUG  16   /* PC16 = Arduino PIN 47 */
 #define SET_DEBUG_PIN (PORT_DEBUG->PIO_SODR |= (0x1U<<PIN_DEBUG))
 #define CLR_DEBUG_PIN (PORT_DEBUG->PIO_CODR |= (0x1U<<PIN_DEBUG))
 #define TGL_DEBUG_PIN (if(PORT_DEBUG->PIO_ODSR){CLEAR_DEBUG_PIN}\
@@ -70,10 +70,10 @@ static BldcControl* motors[MAX_MOTORS];
 commutationTable commutationTableCW =
 {   { 0, 0, 0}, /* illegal hall state 000 */
     {-1, 0, 1}, /* 001 */
-    { 1,-1, 0}, /* 010 */
-    { 0,-1, 1}, /* 011 */
-    { 0, 1,-1}, /* 100 */
-    {-1, 1, 0}, /* 101 */
+    { 0, 1,-1}, /* 010 */
+    {-1, 1, 0}, /* 011 */
+    { 1,-1, 0}, /* 100 */
+    { 0,-1, 1}, /* 101 */
     { 1, 0,-1}, /* 110 */
     { 0, 0, 0}, /* illegal hall state 111 */
 };
@@ -82,12 +82,24 @@ commutationTable commutationTableCW =
 commutationTable commutationTableCCW =
 {   { 0, 0, 0}, /* illegal hall state 000 */
     { 1, 0,-1}, /* 001 */
-    {-1, 1, 0}, /* 010 */
-    { 0, 1,-1}, /* 011 */
-    { 0,-1, 1}, /* 100 */
-    { 1,-1, 0}, /* 101 */
+    { 0,-1, 1}, /* 010 */
+    { 1,-1, 0}, /* 011 */
+    {-1, 1, 0}, /* 100 */
+    { 0, 1,-1}, /* 101 */
     {-1, 0, 1}, /* 110 */
     { 0, 0, 0}, /* illegal hall state 111 */
+};
+
+/* angle assignment to hall states */
+uint16_t anglePosition[8] =
+{     0, /* illegal hall state 000 */
+     60, /* 001 */
+    180, /* 010 */
+    120, /* 011 */
+    300, /* 100 */
+      0, /* 101 */
+    240, /* 110 */
+      0  /* illegal hall state 111 */
 };
 
 /*******************************************************************************
@@ -364,36 +376,36 @@ void BldcControl::pwmSwitchingCU(uint8_t hallState)
     /* set phase U freewheeling */
     if ((*(this->actualCommutation))[hallState][0] == 0)
     {
-        setOverwrite |= this->periphery->Pwm.pwmChBitU | 
+        setOverwrite |= this->periphery->Pwm.pwmChBitU |
                        (this->periphery->Pwm.pwmChBitU<<0x10U);
     }
     else
     {
-        clearOverwrite |= this->periphery->Pwm.pwmChBitU | 
+        clearOverwrite |= this->periphery->Pwm.pwmChBitU |
                          (this->periphery->Pwm.pwmChBitU<<0x10U);
     }
     
     /* set phase V freewheeling */
     if ((*(this->actualCommutation))[hallState][1] == 0)
     {
-        setOverwrite |= this->periphery->Pwm.pwmChBitV | 
+        setOverwrite |= this->periphery->Pwm.pwmChBitV |
                        (this->periphery->Pwm.pwmChBitV<<0x10U);
     }
     else
     {
-        clearOverwrite |= this->periphery->Pwm.pwmChBitV | 
+        clearOverwrite |= this->periphery->Pwm.pwmChBitV |
                          (this->periphery->Pwm.pwmChBitV<<0x10U);
     }
     
     /* set phase W freewheeling */
     if ((*(this->actualCommutation))[hallState][2] == 0)
     {
-        setOverwrite |= this->periphery->Pwm.pwmChBitW | 
+        setOverwrite |= this->periphery->Pwm.pwmChBitW |
                        (this->periphery->Pwm.pwmChBitW<<0x10U);
     }
     else
     {
-        clearOverwrite |= this->periphery->Pwm.pwmChBitW | 
+        clearOverwrite |= this->periphery->Pwm.pwmChBitW |
                          (this->periphery->Pwm.pwmChBitW<<0x10U);
     }
 
@@ -416,7 +428,7 @@ description:    returns the state of the BEMF for phase U, V and W. the return
 ------------------------------------------------------------------------------*/
 uint8_t BldcControl::readBemfState(void)
 {
-    uint16_t halfDcLinkVolt = this->dcLinkVoltage>>1;
+    uint16_t halfDcLinkVolt = this->dcVoltRaw>>1;
     uint8_t  bemfState = 0;
     uint8_t  retVal;
 
@@ -451,9 +463,9 @@ uint8_t BldcControl::readBemfState(void)
     /* check if state changed*/
     if (this->prevBemfState != bemfState)
     {
-        this->bemfStateDelayCnt = this->prevIntCount>>1; 
+        this->bemfStateDelayCnt = this->intCountPrev>>1;
     }
-    else 
+    else
     {
         this->bemfStateDelayCnt--;
     }
@@ -550,7 +562,7 @@ void BldcControl::Config(void)
 }
 
 /*------------------------------------------------------------------------------
-Name:           Controller
+Name: CommutationController
 parameters:     -
 description:    inner loop control. 
                 - measures DC Link voltage
@@ -562,22 +574,22 @@ description:    inner loop control.
 void BldcControl::CommutationControl(void)
 {
     uint8_t  hallState, bemfState;
+    int8_t   SpeedSign;
     uint16_t tmp_per = this->pwmPeriod>>1;
     int16_t  tmp_dc;
     int16_t  Iu, Iv, Iw;
     int16_t  Ifilt;
-    int16_t  currentFbk;
+    int16_t  currentFbk, phiElec;
 
-    debug++;
 SET_DEBUG_PIN;
-    this->interruptCounter++;
+    this->intCount++;
 
     /* measure DC Link Voltage */
-    this->dcLinkVoltage = (*this->periphery->Adc.adcChVoltUResult + 
+    this->dcVoltRaw = (*this->periphery->Adc.adcChVoltUResult +
                            *this->periphery->Adc.adcChVoltVResult +
                            *this->periphery->Adc.adcChVoltWResult) / 3;
     /* read BEMF */
-    bemfState = readBemfState();
+    //bemfState = readBemfState();
     /* read hall sensors */
     hallState = (uint8_t)((HALL1_STATE | (HALL2_STATE<<1) | (HALL3_STATE<<2))&
                 0b111U);
@@ -589,8 +601,8 @@ SET_DEBUG_PIN;
     currentFbk = (abs(Iu) + abs(Iv) + abs(Iw)) / 2;
 
     /* filter measured current */
-    this->IfbkFilt += (currentFbk- (this->IfbkFilt >> FILTER_VALUE));
-    Ifilt = this->IfbkFilt >> FILTER_VALUE;
+    this->iFbkFiltTmp += (currentFbk - (this->iFbkFiltTmp >> FILTER_VALUE));
+    Ifilt = this->iFbkFiltTmp >> FILTER_VALUE;
 
     /* run current control */
     tmp_dc = CurrentControl(Ifilt, currentRef);
@@ -598,26 +610,46 @@ SET_DEBUG_PIN;
     /* change commutation if hall state changed */
     if (hallState != this->previousHallState)
     {
-        /* set outputs according to the commutation cycles */
+        /* set pwm outputs according to the commutation cycles */
         pwmSwitchingCU(hallState);
         
         /* save current hall state */
         this->previousHallState = hallState;
+
+        /* get electric angle from hall states*/
+        phiElec = anglePosition[hallState];
+        
+        /* calculate speed */
+        this->intCountPrev = this->intCount;
+        this->intCount = 0;
         
         /* calculate rotor position */
-        this->deltaPhi = (this->rotDirection == 1)?+60:-60;
+        this->deltaPhi = (int16_t)(phiElec - this->phiElecOld);
+        this->deltaPhi = (this->deltaPhi==-300)? 60:this->deltaPhi;
+        this->deltaPhi = (this->deltaPhi== 300)?-60:this->deltaPhi;
+        this->phiElecOld = phiElec;
+        
+        debug = this->deltaPhi;
+        /*
         this->rotorPosition += (this->deltaPhi / 
                                 this->motorProperties.polePairs);
         this->rotorPosition = this->rotorPosition%360;
-        
-        /* calculate speed */
-        this->prevIntCount = this->interruptCounter;
-        this->interruptCounter = 0;
+        */
+
+
+        //store current hallState
+        this->previousHallState = hallState;
     }
     else
     {
         /* hall state did not change */
     }
+
+
+    /* filter interrupt counter */
+    this->intCountFiltTmp += (this->intCountPrev- (this->intCountFiltTmp >> FILTER_VALUE_INTCNT));
+    this->intCountFilt= this->intCountFiltTmp >> FILTER_VALUE_INTCNT;
+
 
     /* update duty cycle */
     PWM->PWM_CH_NUM[this->periphery->Pwm.pwmChU].PWM_CDTYUPD = (int16_t)tmp_per +
@@ -680,7 +712,7 @@ int16_t BldcControl::CurrentControl(int16_t iFbk, int16_t iRef)
     }
 
 
-    iOut =  iPrp + iInt;
+    iOut = iPrp + iInt;
 
     /* limit output */
     if (iOut > (this->pwmPeriod>>1))
@@ -723,12 +755,12 @@ description:    stops the machine control by deactivating ADC and PWM
 ------------------------------------------------------------------------------*/
 void BldcControl::stop(void)
 {
-    /* enable all the PWM channels for the 3 phases*/
+    /* disable all the PWM channels for the 3 phases*/
     PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChU);
     PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChV);
     PWMC_DisableChannel(PWM, this->periphery->Pwm.pwmChW);
 
-    /* enable ADC channels */
+    /* disable ADC channels */
     ADC->ADC_CHDR |= this->periphery->Adc.adcChCurUBit |
                      this->periphery->Adc.adcChCurVBit |
                      this->periphery->Adc.adcChVoltUBit |
@@ -745,13 +777,13 @@ description:    sets the raw value of the current reference for inner loop
 void BldcControl::setCurrentRef(float current)
 {
     /* limit current reference */
-    current = (current > ADC_MAX_CUR)?  ADC_MAX_CUR:current;
+    current = (current > ADC_MAX_CUR)? ADC_MAX_CUR:current;
     current = (current < -ADC_MAX_CUR)?-ADC_MAX_CUR:current;
 
     /* set rotational direction */
-    this->rotDirection = (current >= 0)?1:-1;
-    this->actualCommutation = (this->rotDirection == 1)?&commutationTableCW:
-                                                        &commutationTableCCW;
+    this->rotDirCmd = (current >= 0)?BLDC_ROT_DIR_CCW:BLDC_ROT_DIR_CW;
+    this->actualCommutation = (this->rotDirCmd == BLDC_ROT_DIR_CW)?&commutationTableCW:
+                                                     &commutationTableCCW;
 
     /* set raw value of current reference */
     this->currentRef = (int16_t)((abs(current)/ ADC_VOLT_IN_AMPS) *
@@ -768,9 +800,15 @@ float BldcControl::getActualSpeed(void)
 {
     float actualSpeed;
 
-    actualSpeed = (float)(CTRL_FRQ / this->prevIntCount) *
-               ((((float)(this->deltaPhi) / this->motorProperties.polePairs ))/
-                         360) * (float)SEC_PER_MIN;
+    actualSpeed = (float)(CTRL_FRQ / this->intCountFilt) *
+          ((((float)(this->deltaPhi) / this->motorProperties.polePairs ))/360) *
+          (float)SEC_PER_MIN;
+
+    /* reset speed after one second */
+    if (this->intCount > (CTRL_FRQ))
+    {
+        actualSpeed = 0;
+    }
 
     return actualSpeed;
 }
@@ -784,8 +822,10 @@ float BldcControl::getDcLinkVoltage(void)
 {
     float dcVoltage;
 
-    dcVoltage = (ADC_REF / ADC_MAX_VAL_12BIT)*((float)(this->dcLinkVoltage)) 
-                * ADC_VOLT_DEVIDER;
+    dcVoltage = (ADC_REF / ADC_MAX_VAL_12BIT)*((float)(this->dcVoltRaw)) * 
+                 ADC_VOLT_DEVIDER;
 
     return dcVoltage;
 }
+
+

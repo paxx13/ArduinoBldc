@@ -85,7 +85,7 @@
     #define ADC_VOLT_IN_AMPS 15.15 /* transfer gain of current sensor */
                                    /* (1.65 Volts = 25 Amps) */
     #define ADC_CUR_OFFSET 2048 /* 0 amps = 1.65 Volts in current sensor */
-    #define ADC_VOLT_DEVIDER    40 /* voltage divider for phase voltage */
+    #define ADC_VOLT_DEVIDER    1 /* voltage divider for phase voltage */
                                    /* measurement */
 #else
     #error "define version of power shield"
